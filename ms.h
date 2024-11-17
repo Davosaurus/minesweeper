@@ -13,7 +13,7 @@ const string YELLOW = "\x1B[93m";
 const string BLUE = "\x1B[94m";
 const string END = "\033[0m";
 
-pair<int, int> difficulty[3] = {{9, 10}, {16, 40}, {30, 99}};
+pair<int, int> difficulty[3] = {{9, 10}, {16, 40}, {24, 99}};
 
 bool firstMove = true;
 
@@ -191,19 +191,15 @@ void endGame(int** matrix, int rows, int cols)
           output += RED + MINE + END;
           break;
         case 9:
-          output += GREEN + MINE + END;
-          break;
         case -9:
           output += GREEN + MINE + END;
           break;
         case 10:
+        case 20:
           output += " ";
           break;
         case -10:
           output += RED + "_" + END;
-          break;
-        case -11:
-          output += " ";
           break;
         default:
           if(matrix[i][j] < 0)
@@ -242,7 +238,7 @@ bool revealSpace(COORD pos, int** matrix, int rows, int cols, int numMines)
         return 1;
         break;
       case 10:
-        matrix[pos.Y - 1][pos.X - 1] = -11;
+        matrix[pos.Y - 1][pos.X - 1] = 20;
         for(int i = -1; i <= 1; i++)
         {
           for(int j = -1; j <= 1; j++)
@@ -286,7 +282,7 @@ void markSpace(COORD pos, int** matrix)
   if(!firstMove)
   {
     SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos);
-    if(matrix[pos.Y - 1][pos.X - 1] != -11 && matrix[pos.Y - 1][pos.X - 1] <= 10)
+    if(matrix[pos.Y - 1][pos.X - 1] <= 10)
     {
       if(matrix[pos.Y - 1][pos.X - 1] > 0)
         cout << BLUE << FLAG << END;
@@ -297,6 +293,37 @@ void markSpace(COORD pos, int** matrix)
   }
 }
 
+void chordSpace(COORD pos, int** matrix, int rows, int cols)
+{
+  //See if space is a revealed number
+  if(matrix[pos.Y - 1][pos.X - 1] > 10 && matrix[pos.Y - 1][pos.X - 1] < 20)
+  {
+    //Count number of adjacent flags
+    int numFlags = 0;
+    for(int i = -1; i <= 1; i++)
+    {
+      for(int j = -1; j <= 1; j++)
+      {
+        if(pos.X + i - 1 >= 0 && pos.X + i - 1 < cols && pos.Y + j - 1 >= 0 && pos.Y + j - 1 < rows //Bound checking
+        && matrix[pos.Y + j - 1][pos.X + i - 1] < 0) //Is flagged
+          numFlags++;
+      }
+    }
+    
+    //If correct # of adjacent flags, chord (reveal all adjacent spaces)
+    if(numFlags == matrix[pos.Y - 1][pos.X - 1] - 10)
+    {
+      for(int i = -1; i <= 1; i++)
+      {
+        for(int j = -1; j <= 1; j++)
+        {
+          if(!firstMove && pos.X + i - 1 >= 0 && pos.X + i - 1 < cols && pos.Y + j - 1 >= 0 && pos.Y + j - 1 < rows)
+            revealSpace(COORD{short(pos.X + i), short(pos.Y + j)}, matrix, rows, cols, 0);
+        }
+      }
+    }
+  }
+}
 
 
 

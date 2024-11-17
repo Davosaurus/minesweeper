@@ -8,12 +8,20 @@ int main()
   bool ended;
   bool exit;
   
-  SetConsoleTitle("Minesweeper");
+  SetConsoleTitle("Minesweeper: \"100% more chording!\"");
   system("cls");
   
   //Grab font settings so they can be re-applied later
   CONSOLE_FONT_INFOEX originalFont = {sizeof(originalFont)};
   GetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), false, &originalFont);
+  
+  //Disable QuickEdit mode (to prevent pausing when clicking in window)
+  DWORD prev_mode;
+  GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &prev_mode);
+  SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), ENABLE_EXTENDED_FLAGS | (prev_mode & ~ENABLE_QUICK_EDIT_MODE));
+  
+  //Lock window resizing
+  SetWindowLong(GetConsoleWindow(), GWL_STYLE, GetWindowLong(GetConsoleWindow(), GWL_STYLE) & ~WS_MAXIMIZEBOX & ~WS_SIZEBOX);
   
   while(1)
   {
@@ -23,7 +31,7 @@ int main()
     
     ShowConsoleCursor(1, false);
     
-    cout << "\n   Controls: " + BLUE + "ARROW KEYS" + END + ", " + BLUE + "SPACE BAR" + END + ", and " + BLUE + "ENTER" + END << endl;
+    cout << "\n   Controls: " + BLUE + "ARROW KEYS" + END + ", " + BLUE + "ENTER" + END + ", " + BLUE + "SPACE BAR" + END + ", and " + BLUE + "C" + END << endl;
     cout << "\t     (" + RED + "ESCAPE" + END + " to exit)" << endl;
     cout << "   Choose difficulty by pressing a number key..." << endl;
     cout << GREEN + "\t1" + END + "\tBeginner" << endl;
@@ -67,8 +75,8 @@ int main()
     //Set font size
     CONSOLE_FONT_INFOEX font={0};
     font.cbSize=sizeof(font);
-    font.dwFontSize.X = 20;
-    font.dwFontSize.Y = 20;
+    font.dwFontSize.X = 18;
+    font.dwFontSize.Y = 18;
     SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), false, &font);
     
     //Set window size
@@ -130,6 +138,10 @@ int main()
             case VK_SPACE:
               if(!ended)
                 markSpace(position, field);
+              break;
+            case 0x43: //"C"
+              if(!ended)
+                chordSpace(position, field, xSize, ySize);
               break;
           }
           SetConsoleCursorPosition(hOut, position);
