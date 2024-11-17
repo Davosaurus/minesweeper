@@ -8,7 +8,7 @@ int main()
   bool ended;
   bool exit;
   
-  SetConsoleTitle("Minesweeper: \"100% more chording!\"");
+  SetConsoleTitle("Minesweeper: \"Instructions included!\"");
   system("cls");
   
   //Grab font settings so they can be re-applied later
@@ -27,16 +27,21 @@ int main()
   {
     //Set window size
     SetWindow(1, 1);
-    SetWindow(50, 8);
+    SetWindow(50, 12);
     
     ShowConsoleCursor(1, false);
+    system("cls");
     
-    cout << "\n   Controls: " + BLUE + "ARROW KEYS" + END + ", " + BLUE + "ENTER" + END + ", " + BLUE + "SPACE BAR" + END + ", and " + BLUE + "C" + END << endl;
-    cout << "\t     (" + RED + "ESCAPE" + END + " to exit)" << endl;
+    cout << "\n   Controls:" << endl;
+	cout << "\t" + BLUE + "ARROW KEYS" + END + "\tMove cursor" << endl;
+	cout << "\t" + BLUE + "ENTER" + END + "\t\tReveal space" << endl;
+	cout << "\t" + BLUE + "SPACE BAR" + END + "\tFlag space" << endl;
+	cout << "\t" + BLUE + "C" + END + "\t\tChord a number" << endl;
+    cout << "\t" + RED + "ESCAPE" + END + "\t\tExit" << endl;
     cout << "   Choose difficulty by pressing a number key..." << endl;
-    cout << GREEN + "\t1" + END + "\tBeginner" << endl;
-    cout << YELLOW + "\t2" + END + "\tIntermediate" << endl;
-    cout << RED + "\t3" + END + "\tExpert";
+    cout << GREEN + "\t1" + END + "\t\tBeginner" << endl;
+    cout << YELLOW + "\t2" + END + "\t\tIntermediate" << endl;
+    cout << RED + "\t3" + END + "\t\tExpert";
     
     ended = false;
     exit = false;
