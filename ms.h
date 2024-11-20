@@ -1,11 +1,12 @@
 #include <iostream>
 #include <windows.h>
 #include <time.h>
+#include <unordered_set>
 using namespace std;
 
-const char UNKNOWN = 176;
-const char FLAG = 244;
-const char MINE = '*';
+const char CHARACTER_UNKNOWN = 176;
+const char CHARACTER_FLAG = 244;
+const char CHARACTER_MINE = '*';
 
 const string RED = "\x1B[91m";
 const string GREEN = "\x1B[92m";
@@ -19,12 +20,12 @@ bool firstMove = true;
 
 typedef struct _CONSOLE_FONT_INFOEX
 {
-    ULONG cbSize;
-    DWORD nFont;
-    COORD dwFontSize;
-    UINT  FontFamily;
-    UINT  FontWeight;
-    WCHAR FaceName[LF_FACESIZE];
+		ULONG cbSize;
+		DWORD nFont;
+		COORD dwFontSize;
+		UINT  FontFamily;
+		UINT  FontWeight;
+		WCHAR FaceName[LF_FACESIZE];
 }CONSOLE_FONT_INFOEX, *PCONSOLE_FONT_INFOEX;
 
 #ifdef __cplusplus
@@ -76,32 +77,172 @@ void printScreen(int x, int y, string str)
 	cout << str;
 }
 
-string toString(int **matrix, int rows, int cols)
+string emptyBoard(int **matrix, int rows, int cols)
 {
 	string output = "";
-  output += 201;
+	output += 201;
 	for(int i = 0; i < cols; i++)
 	{
 		output += 205;
 	}
-  output += 187;
+	output += 187;
 	output += "\n";
 	for(int i = 0; i < rows; i++)
 	{
 		output += 186;
 		for(int j = 0; j < cols; j++)
-      output += UNKNOWN;
+			output += CHARACTER_UNKNOWN;
 		output += 186;
 		output += "\n";
 	}
-  output += 200;
+	output += 200;
 	for(int i = 0; i < cols; i++)
 	{
 		output += 205;
 	}
-  output += 188;
+	output += 188;
 	return output;
 }
+
+enum State {
+	BLANK,
+	MINE,
+	NUMBER
+};
+
+class Cell {
+	private:
+		bool hidden = true;
+		bool flagged = false;
+		State state;
+		short number;
+	
+	public:
+		Cell(bool isMine) {
+			if(isMine) {
+				state = State::MINE;
+			}
+			else {
+				state = State::BLANK;
+			}
+		}
+		
+		Cell(int desiredNumber) {
+			state = State::NUMBER;
+			number = desiredNumber;
+		}
+	
+		bool isMine() {
+			return state == State::MINE;
+		}
+		
+		bool toggleFlag() {
+			if(flagged) {
+				flagged = false;
+			}
+			else if(hidden) {
+				flagged = true;
+			}
+			return flagged;
+		}
+};
+
+class Field {
+	private:
+		int rows;
+		int cols;
+		int mines;
+		Cell*** cells;
+	
+	public:
+		Field(int xSize, int ySize, int numMines) {
+			rows = xSize;
+			cols = ySize;
+			mines = numMines;
+			
+			cells = new Cell**[rows];
+			for(int row = 0; row < rows; row++) {
+				cells[row] = new Cell*[cols];
+				for(int col = 0; col < cols; col++) {
+					cells[row][col] = NULL;
+				}
+			}
+		}
+		
+		~Field() {
+			for(int row = 0; row < rows; row++) {
+				for(int col = 0; col < cols; col++) {
+					delete cells[row][col];
+				}
+				delete[] cells[row];
+			}
+			delete[] cells;
+			cells = NULL;
+		}
+		
+		void init(COORD position) {
+			/* //Seed board with mines
+			srand(time(0));
+			for(int i = 0; i < numMines; i++)
+			{
+				bool validPosition = false;
+				do
+				{
+					int minePosition = rand() % (rows * cols);
+					if(matrix[minePosition / cols][minePosition % cols] != 9
+					&& !(minePosition / cols >= pos.Y - 2
+						&& minePosition / cols <= pos.Y
+						&& minePosition % cols >= pos.X - 2
+						&& minePosition % cols <= pos.X))
+					{
+						matrix[minePosition / cols][minePosition % cols] = 9;
+						validPosition = true;
+					}
+				}while(!validPosition); //Check that it is valid space
+			}
+			
+			//Generate adjacent numbers
+			for(int i = 0; i < rows; i++)
+			{
+				for(int j = 0; j < cols; j++)
+				{
+					if(matrix[i][j] != 9)
+					{
+						int sum = 0;
+						for(int k = -1; k <= 1; k++)
+						{
+							for(int m = -1; m <= 1; m++)
+							{
+								if(i + k >= 0 && i + k < rows && j + m >= 0 && j + m < cols && matrix[i + k][j + m] == 9)
+									sum++;
+							}
+						}
+						
+						if(sum == 0)
+							matrix[i][j] = 10;
+						else
+							matrix[i][j] = sum;
+					}
+				}
+			} */
+		}
+		
+		unordered_set<Cell*> getAdjacentCells(COORD position) {
+			unordered_set<Cell*> result;
+			for(int xModifier = -1; xModifier <= 1; xModifier++)
+			{
+				for(int yModifier = -1; yModifier <= 1; yModifier++)
+				{
+					int x = position.X + xModifier;
+					int y = position.Y + yModifier;
+					if( x >= 0 && x < rows &&
+						y >= 0 && y < cols)
+						result.insert(cells[x][y]);
+				}
+			}
+			return result;
+		}
+};
 
 int ** buildMatrix(int rows, int cols)
 {
@@ -113,59 +254,59 @@ int ** buildMatrix(int rows, int cols)
 
 void fillMatrix(COORD pos, int **matrix, int rows, int cols, int numMines)
 {
-  //Initialize matrix to zeroes
-  for(int i = 0; i < rows; i++)
-  {
-    for(int j = 0; j < cols; j++)
-    {
-      matrix[i][j] = 0;
-    }
-  }
-  
-  //Seed board with mines
-  srand(time(0));
-  for(int i = 0; i < numMines; i++)
-  {
-    bool validPosition = false;
-    do
-    {
-      int minePosition = rand() % (rows * cols);
-      if(matrix[minePosition / cols][minePosition % cols] != 9
-      && !(minePosition / cols >= pos.Y - 2
-        && minePosition / cols <= pos.Y
-        && minePosition % cols >= pos.X - 2
-        && minePosition % cols <= pos.X))
-      {
-        matrix[minePosition / cols][minePosition % cols] = 9;
-        validPosition = true;
-      }
-    }while(!validPosition); //Check that it is valid space
-  }
-  
-  //Generate adjacent numbers
-  for(int i = 0; i < rows; i++)
-  {
-    for(int j = 0; j < cols; j++)
-    {
-      if(matrix[i][j] != 9)
-      {
-        int sum = 0;
-        for(int k = -1; k <= 1; k++)
-        {
-          for(int m = -1; m <= 1; m++)
-          {
-            if(i + k >= 0 && i + k < rows && j + m >= 0 && j + m < cols && matrix[i + k][j + m] == 9)
-              sum++;
-          }
-        }
-        
-        if(sum == 0)
-          matrix[i][j] = 10;
-        else
-          matrix[i][j] = sum;
-      }
-    }
-  }
+	//Initialize matrix to zeroes
+	for(int i = 0; i < rows; i++)
+	{
+		for(int j = 0; j < cols; j++)
+		{
+			matrix[i][j] = 0;
+		}
+	}
+	
+	//Seed board with mines
+	srand(time(0));
+	for(int i = 0; i < numMines; i++)
+	{
+		bool validPosition = false;
+		do
+		{
+			int minePosition = rand() % (rows * cols);
+			if(matrix[minePosition / cols][minePosition % cols] != 9
+			&& !(minePosition / cols >= pos.Y - 2
+				&& minePosition / cols <= pos.Y
+				&& minePosition % cols >= pos.X - 2
+				&& minePosition % cols <= pos.X))
+			{
+				matrix[minePosition / cols][minePosition % cols] = 9;
+				validPosition = true;
+			}
+		}while(!validPosition); //Check that it is valid space
+	}
+	
+	//Generate adjacent numbers
+	for(int i = 0; i < rows; i++)
+	{
+		for(int j = 0; j < cols; j++)
+		{
+			if(matrix[i][j] != 9)
+			{
+				int sum = 0;
+				for(int k = -1; k <= 1; k++)
+				{
+					for(int m = -1; m <= 1; m++)
+					{
+						if(i + k >= 0 && i + k < rows && j + m >= 0 && j + m < cols && matrix[i + k][j + m] == 9)
+							sum++;
+					}
+				}
+				
+				if(sum == 0)
+					matrix[i][j] = 10;
+				else
+					matrix[i][j] = sum;
+			}
+		}
+	}
 }
 
 void deleteMatrix(int **matrix, int rows)
@@ -180,149 +321,149 @@ void deleteMatrix(int **matrix, int rows)
 
 void endGame(int** matrix, int rows, int cols)
 {
-  for(int i = 0; i < rows; i++)
+	for(int i = 0; i < rows; i++)
 	{
-    string output = "";
+		string output = "";
 		for(int j = 0; j < cols; j++)
-    {
-      switch(matrix[i][j])
-      {
-        case 19:
-          output += RED + MINE + END;
-          break;
-        case 9:
-        case -9:
-          output += GREEN + MINE + END;
-          break;
-        case 10:
-        case 20:
-          output += " ";
-          break;
-        case -10:
-          output += RED + "_" + END;
-          break;
-        default:
-          if(matrix[i][j] < 0)
-          {
-            output += RED + to_string(matrix[i][j] * -1) + END;
-          }
-          else if(matrix[i][j] > 10)
-          {
-            output += to_string(matrix[i][j] - 10);
-          }
-          else
-          {
-            output += to_string(matrix[i][j]);
-          }
-      }
-    }
-    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), COORD{1, short(i + 1)});
-    cout << output;
+		{
+			switch(matrix[i][j])
+			{
+				case 19:
+					output += RED + CHARACTER_MINE + END;
+					break;
+				case 9:
+				case -9:
+					output += GREEN + CHARACTER_MINE + END;
+					break;
+				case 10:
+				case 20:
+					output += " ";
+					break;
+				case -10:
+					output += RED + "_" + END;
+					break;
+				default:
+					if(matrix[i][j] < 0)
+					{
+						output += RED + to_string(matrix[i][j] * -1) + END;
+					}
+					else if(matrix[i][j] > 10)
+					{
+						output += to_string(matrix[i][j] - 10);
+					}
+					else
+					{
+						output += to_string(matrix[i][j]);
+					}
+			}
+		}
+		SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), COORD{1, short(i + 1)});
+		cout << output;
 	}
 }
 
 bool revealSpace(COORD pos, int** matrix, int rows, int cols, int numMines)
 {
-  if(firstMove)
-    fillMatrix(pos, matrix, rows, cols, numMines);
-  firstMove = false;
-  
-  if(matrix[pos.Y - 1][pos.X - 1] > 0 && matrix[pos.Y - 1][pos.X - 1] < 11)
-  {
-    switch(matrix[pos.Y - 1][pos.X - 1])
-    {
-      case 9:
-        matrix[pos.Y - 1][pos.X - 1] += 10;
-        endGame(matrix, rows, cols);
-        firstMove = true;
-        return 1;
-        break;
-      case 10:
-        matrix[pos.Y - 1][pos.X - 1] = 20;
-        for(int i = -1; i <= 1; i++)
-        {
-          for(int j = -1; j <= 1; j++)
-          {
-            if(pos.X + i - 1 >= 0 && pos.X + i - 1 < cols && pos.Y + j - 1 >= 0 && pos.Y + j - 1 < rows)
-              revealSpace(COORD{short(pos.X + i), short(pos.Y + j)}, matrix, rows, cols, numMines);
-          }
-        }
-        SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos);
-        cout << " ";
-        break;
-      default:
-        SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos);
-        cout << matrix[pos.Y - 1][pos.X - 1];
-        matrix[pos.Y - 1][pos.X - 1] += 10;
-    }
-  }
-  
-  //Check for win condition
-  bool win = true;
-  for(int i = 0; i < rows && win; i++)
-  {
-    for(int j = 0; j < cols && win; j++)
-    {
-      if((matrix[i][j] > 0 && matrix[i][j] < 9) || matrix[i][j] == 10)
-        win = false;
-    }
-  }
-  if(win)
-  {
-    endGame(matrix, rows, cols);
-    firstMove = true;
-    return 1;
-  }
-  
-  return 0;
+	if(firstMove)
+		fillMatrix(pos, matrix, rows, cols, numMines);
+	firstMove = false;
+	
+	if(matrix[pos.Y - 1][pos.X - 1] > 0 && matrix[pos.Y - 1][pos.X - 1] < 11)
+	{
+		switch(matrix[pos.Y - 1][pos.X - 1])
+		{
+			case 9:
+				matrix[pos.Y - 1][pos.X - 1] += 10;
+				endGame(matrix, rows, cols);
+				firstMove = true;
+				return 1;
+				break;
+			case 10:
+				matrix[pos.Y - 1][pos.X - 1] = 20;
+				for(int i = -1; i <= 1; i++)
+				{
+					for(int j = -1; j <= 1; j++)
+					{
+						if(pos.X + i - 1 >= 0 && pos.X + i - 1 < cols && pos.Y + j - 1 >= 0 && pos.Y + j - 1 < rows)
+							revealSpace(COORD{short(pos.X + i), short(pos.Y + j)}, matrix, rows, cols, numMines);
+					}
+				}
+				SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos);
+				cout << " ";
+				break;
+			default:
+				SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos);
+				cout << matrix[pos.Y - 1][pos.X - 1];
+				matrix[pos.Y - 1][pos.X - 1] += 10;
+		}
+	}
+	
+	//Check for win condition
+	bool win = true;
+	for(int i = 0; i < rows && win; i++)
+	{
+		for(int j = 0; j < cols && win; j++)
+		{
+			if((matrix[i][j] > 0 && matrix[i][j] < 9) || matrix[i][j] == 10)
+				win = false;
+		}
+	}
+	if(win)
+	{
+		endGame(matrix, rows, cols);
+		firstMove = true;
+		return 1;
+	}
+	
+	return 0;
 }
 
 void markSpace(COORD pos, int** matrix)
 {
-  if(!firstMove)
-  {
-    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos);
-    if(matrix[pos.Y - 1][pos.X - 1] <= 10)
-    {
-      if(matrix[pos.Y - 1][pos.X - 1] > 0)
-        cout << BLUE << FLAG << END;
-      else if(matrix[pos.Y - 1][pos.X - 1] < 0)
-        cout << UNKNOWN;
-      matrix[pos.Y - 1][pos.X - 1] *= -1;
-    }
-  }
+	if(!firstMove)
+	{
+		SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos);
+		if(matrix[pos.Y - 1][pos.X - 1] <= 10)
+		{
+			if(matrix[pos.Y - 1][pos.X - 1] > 0)
+				cout << BLUE << CHARACTER_FLAG << END;
+			else if(matrix[pos.Y - 1][pos.X - 1] < 0)
+				cout << CHARACTER_UNKNOWN;
+			matrix[pos.Y - 1][pos.X - 1] *= -1;
+		}
+	}
 }
 
 void chordSpace(COORD pos, int** matrix, int rows, int cols)
 {
-  //See if space is a revealed number
-  if(matrix[pos.Y - 1][pos.X - 1] > 10 && matrix[pos.Y - 1][pos.X - 1] < 20)
-  {
-    //Count number of adjacent flags
-    int numFlags = 0;
-    for(int i = -1; i <= 1; i++)
-    {
-      for(int j = -1; j <= 1; j++)
-      {
-        if(pos.X + i - 1 >= 0 && pos.X + i - 1 < cols && pos.Y + j - 1 >= 0 && pos.Y + j - 1 < rows //Bound checking
-        && matrix[pos.Y + j - 1][pos.X + i - 1] < 0) //Is flagged
-          numFlags++;
-      }
-    }
-    
-    //If correct # of adjacent flags, chord (reveal all adjacent spaces)
-    if(numFlags == matrix[pos.Y - 1][pos.X - 1] - 10)
-    {
-      for(int i = -1; i <= 1; i++)
-      {
-        for(int j = -1; j <= 1; j++)
-        {
-          if(!firstMove && pos.X + i - 1 >= 0 && pos.X + i - 1 < cols && pos.Y + j - 1 >= 0 && pos.Y + j - 1 < rows)
-            revealSpace(COORD{short(pos.X + i), short(pos.Y + j)}, matrix, rows, cols, 0);
-        }
-      }
-    }
-  }
+	//See if space is a revealed number
+	if(matrix[pos.Y - 1][pos.X - 1] > 10 && matrix[pos.Y - 1][pos.X - 1] < 20)
+	{
+		//Count number of adjacent flags
+		int numFlags = 0;
+		for(int i = -1; i <= 1; i++)
+		{
+			for(int j = -1; j <= 1; j++)
+			{
+				if(pos.X + i - 1 >= 0 && pos.X + i - 1 < cols && pos.Y + j - 1 >= 0 && pos.Y + j - 1 < rows //Bound checking
+				&& matrix[pos.Y + j - 1][pos.X + i - 1] < 0) //Is flagged
+					numFlags++;
+			}
+		}
+		
+		//If correct # of adjacent flags, chord (reveal all adjacent spaces)
+		if(numFlags == matrix[pos.Y - 1][pos.X - 1] - 10)
+		{
+			for(int i = -1; i <= 1; i++)
+			{
+				for(int j = -1; j <= 1; j++)
+				{
+					if(!firstMove && pos.X + i - 1 >= 0 && pos.X + i - 1 < cols && pos.Y + j - 1 >= 0 && pos.Y + j - 1 < rows)
+						revealSpace(COORD{short(pos.X + i), short(pos.Y + j)}, matrix, rows, cols, 0);
+				}
+			}
+		}
+	}
 }
 
 
