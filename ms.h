@@ -13,6 +13,135 @@ using namespace std;
 
 mt19937 randomizer{(unsigned int)time(0)};
 
+struct FlexibleStringComponent {
+	short length;
+	const string text;
+	
+	FlexibleStringComponent(const string& desiredText, const short& desiredLength) : text(desiredText), length(desiredLength) {}
+	
+	FlexibleStringComponent(const string& desiredText) : text(desiredText) {
+		FlexibleStringComponent(desiredText, desiredText.length());
+	}
+};
+
+struct FlexibleString {
+	vector<FlexibleStringComponent> components = vector<FlexibleStringComponent>();
+	
+	FlexibleString() {}
+	
+	FlexibleString& addComponent(const FlexibleStringComponent& component) {
+		components.push_back(component);
+		return *this;
+	}
+	
+	FlexibleString& addText(const string& text, const short& length) {
+		components.push_back(FlexibleStringComponent(text, length));
+		return *this;
+	}
+	
+	FlexibleString& addText(const string& text) {
+		for(char c : text) {
+			addText(string(1, c), 1);
+		}
+		return *this;
+	}
+	
+	const short length() const {
+		short sum = 0;
+		for(FlexibleStringComponent component : components) {
+			sum += component.length;
+		}
+		return sum;
+	}
+};
+
+const string ansiSequence(const int& controlCode) {
+	return "\x1B[" + to_string(controlCode) + "m";
+}
+
+namespace text { enum text {
+	BLACK = 30,
+	DARK_RED = 31,
+	DARK_GREEN = 32,
+	DARK_YELLOW = 33,
+	DARK_BLUE = 34,
+	DARK_MAGENTA = 35,
+	DARK_CYAN = 36,
+	GRAY = 37,
+	DARK_GRAY = 90,
+	RED = 91,
+	GREEN = 92,
+	YELLOW = 93,
+	BLUE = 94,
+	MAGENTA = 95,
+	CYAN = 96,
+	WHITE = 97
+}; }
+
+namespace background { enum background {
+	BLACK = 40,
+	DARK_RED = 41,
+	DARK_GREEN = 42,
+	DARK_YELLOW = 43,
+	DARK_BLUE = 44,
+	DARK_MAGENTA = 45,
+	DARK_CYAN = 46,
+	GRAY = 47,
+	DARK_GRAY = 100,
+	RED = 101,
+	GREEN = 102,
+	YELLOW = 103,
+	BLUE = 104,
+	MAGENTA = 105,
+	CYAN = 106,
+	WHITE = 107
+}; }
+
+FlexibleString color(const string& text, const int& colorCode) {
+	return FlexibleString()
+			.addText(ansiSequence(colorCode), 0)	//text style
+			.addText(text)
+			.addText(ansiSequence(0), 0);			//default style
+}
+
+FlexibleString color(const string& text, const int& colorCodeText, const int& colorCodeBackground) {
+	return FlexibleString()
+			.addText(ansiSequence(colorCodeText), 0)		//text style
+			.addText(ansiSequence(colorCodeBackground), 0)	//background style (the order of the two actually doesn't matter, both styles will be applied)
+			.addText(text)
+			.addText(ansiSequence(0), 0);					//default style
+}
+
+FlexibleString color(const FlexibleStringComponent& component, const int& colorCode) {
+	return FlexibleString()
+			.addText(ansiSequence(colorCode), 0)	//text style
+			.addComponent(component)
+			.addText(ansiSequence(0), 0);			//default style
+}
+
+FlexibleString color(const FlexibleStringComponent& component, const int& colorCodeText, const int& colorCodeBackground) {
+	return FlexibleString()
+			.addText(ansiSequence(colorCodeText), 0)		//text style
+			.addText(ansiSequence(colorCodeBackground), 0)	//background style (the order of the two actually doesn't matter, both styles will be applied)
+			.addComponent(component)
+			.addText(ansiSequence(0), 0);					//default style
+}
+
+bool isDigits(const string& input) {
+	return all_of(input.begin(), input.end(), ::isdigit);
+}
+
+const function<bool(const string&)> inNumericRange(const int& min, const int& max) {
+	return [min, max](const string& input) { return isDigits(input) && stoi(input) >= min && stoi(input) <= max; };
+}
+
+const string getTextFromNumericField(const int& field, const int& length) {
+	char outputString[length + 1];
+	const char* format = ("%0" + to_string(length) + "d").c_str();
+	sprintf(outputString, format, field);
+	return outputString;
+}
+
 namespace window {
 
 #ifndef CONSOLE_READ_NOWAIT
@@ -118,43 +247,6 @@ void scaleFontSizeToFit(CONSOLE_FONT_INFOEX& font, const COORD& windowSize) {
 	}
 }
 
-struct FlexibleStringComponent {
-	short length;
-	const string text;
-	
-	FlexibleStringComponent(const string& desiredText, const short& desiredLength) : text(desiredText), length(desiredLength) {}
-	
-	FlexibleStringComponent(const string& desiredText) : text(desiredText) {
-		FlexibleStringComponent(desiredText, desiredText.length());
-	}
-};
-
-struct FlexibleString {
-	vector<FlexibleStringComponent> components = vector<FlexibleStringComponent>();
-	
-	FlexibleString() {}
-	
-	FlexibleString& addText(const string& text, const short& length) {
-		components.push_back(FlexibleStringComponent(text, length));
-		return *this;
-	}
-	
-	FlexibleString& addText(const string& text) {
-		for(char c : text) {
-			addText(string(1, c), 1);
-		}
-		return *this;
-	}
-	
-	const short length() const {
-		short sum = 0;
-		for(FlexibleStringComponent component : components) {
-			sum += component.length;
-		}
-		return sum;
-	}
-};
-
 void printInRectangle(const FlexibleString& flexibleString, const COORD& beginPosition, const COORD& endPosition = COORD{SHRT_MAX, SHRT_MAX}, const bool& fillAll = false) {
 	COORD cursor = beginPosition;
 	
@@ -164,7 +256,7 @@ void printInRectangle(const FlexibleString& flexibleString, const COORD& beginPo
 	do {
 		for(FlexibleStringComponent component : flexibleString.components) {
 			if(cursor.Y > endPosition.Y && component.length > 0) {
-				return;
+				continue;
 			}
 			else {
 				cout << component.text;
@@ -181,37 +273,40 @@ void printInRectangle(const FlexibleString& flexibleString, const COORD& beginPo
 				}
 			}
 		}
-	} while(fillAll);
+	} while(fillAll && cursor.Y <= endPosition.Y);
 }
 
 void printInRectangle(const string& text, const COORD& beginPosition, const COORD& endPosition = COORD{SHRT_MAX, SHRT_MAX}, const bool& fillAll = false) {
 	printInRectangle(FlexibleString().addText(text), beginPosition, endPosition, fillAll);
 }
 
-void printEdgeBorders(const COORD& windowSize, const int& numHorizontalSeparators = 0, ...) {
+void printEdgeBorders(const COORD& windowSize, const int& colorCodeText, const int& colorCodeBackground, const int& numHorizontalSeparators = 0, ...) {
 	COORD max = COORD{short(windowSize.X - 1), short(windowSize.Y - 1)};
 	
+	const FlexibleString borderCorner = color(FlexibleStringComponent("╬", 1), colorCodeText, colorCodeBackground);
+	const FlexibleString borderEdgeHorizontal = color(FlexibleStringComponent("═", 1), colorCodeText, colorCodeBackground);
+	const FlexibleString borderEdgeVertical = color(FlexibleStringComponent("║", 1), colorCodeText, colorCodeBackground);
+	
 	//4 corners
-	//TODO ..... replace these strings with preset constants
-	printInRectangle(FlexibleString().addText("╬", 1), COORD{0, 0});
-	printInRectangle(FlexibleString().addText("╬", 1), COORD{max.X, 0});
-	printInRectangle(FlexibleString().addText("╬", 1), COORD{max.X, max.Y});
-	printInRectangle(FlexibleString().addText("╬", 1), COORD{0, max.Y});
+	printInRectangle(borderCorner, COORD{0, 0});
+	printInRectangle(borderCorner, COORD{max.X, 0});
+	printInRectangle(borderCorner, COORD{max.X, max.Y});
+	printInRectangle(borderCorner, COORD{0, max.Y});
 	
 	//4 outer edges
-	printInRectangle(FlexibleString().addText("═", 1), COORD{1, 0}, COORD{short(max.X - 1), 0}, true);
-	printInRectangle(FlexibleString().addText("║", 1), COORD{max.X, 1}, COORD{max.X, short(max.Y - 1)}, true);
-	printInRectangle(FlexibleString().addText("═", 1), COORD{1, max.Y}, COORD{short(max.X - 1), max.Y}, true);
-	printInRectangle(FlexibleString().addText("║", 1), COORD{0, 1}, COORD{0, short(max.Y - 1)}, true);
+	printInRectangle(borderEdgeHorizontal, COORD{1, 0}, COORD{short(max.X - 1), 0}, true);
+	printInRectangle(borderEdgeVertical, COORD{max.X, 1}, COORD{max.X, short(max.Y - 1)}, true);
+	printInRectangle(borderEdgeHorizontal, COORD{1, max.Y}, COORD{short(max.X - 1), max.Y}, true);
+	printInRectangle(borderEdgeVertical, COORD{0, 1}, COORD{0, short(max.Y - 1)}, true);
 	
 	//Arbitrary number of horizontal separators
 	va_list args;
 	va_start(args, numHorizontalSeparators);
 	for(int i = 0; i < numHorizontalSeparators; i++) {
 		short row = (short)va_arg(args, int);
-		printInRectangle(FlexibleString().addText("╬", 1), COORD{0, row});
-		printInRectangle(FlexibleString().addText("╬", 1), COORD{max.X, row});
-		printInRectangle(FlexibleString().addText("═", 1), COORD{1, row}, COORD{short(max.X - 1), row}, true);
+		printInRectangle(borderCorner, COORD{0, row});
+		printInRectangle(borderCorner, COORD{max.X, row});
+		printInRectangle(borderEdgeHorizontal, COORD{1, row}, COORD{short(max.X - 1), row}, true);
 	}
 	va_end(args);
 }
@@ -350,53 +445,18 @@ string getTextInput(const COORD& screenPosition, const short& maxLength, const f
 	}
 }
 
-short getNumericInput(const COORD& screenPosition, const short& maxLength, const function<bool(const string&)>& validate = [](const string& input) { return true; }) {
+short getInput(const COORD& screenPosition, const short& maxLength, const function<bool(const string&)>& validate = [](const string& input) { return true; }) {
 	return stoi(getTextInput(screenPosition, maxLength, validate));
 }
 
-bool isDigits(const string& input) {
-	return all_of(input.begin(), input.end(), ::isdigit);
 }
-
-const function<bool(const string&)> inNumericRange(const int& min, const int& max) {
-	return [min, max](const string& input) { return isDigits(input) && stoi(input) >= min && stoi(input) <= max; };
-}
-
-}
-
-//TODO replace all of these control characters with a proper color class or namespace with functions
-const string ANSI_START = "\x1B[";
-const string ANSI_END = "m";
-const string END = ANSI_START + "0" + ANSI_END;
 
 const string CHARACTER_BLANK = " ";
-const string CHARACTER_HIDDEN = ANSI_START + "47" + ANSI_END + CHARACTER_BLANK + END;
-const string CHARACTER_FLAG = ANSI_START + "91" + ANSI_END + ANSI_START + "47" + ANSI_END + "ľ" + END + END;
+const string CHARACTER_HIDDEN = ansiSequence(47) + CHARACTER_BLANK + ansiSequence(0);
+const string CHARACTER_FLAG = ansiSequence(91) + ansiSequence(47) + "ľ" + ansiSequence(0);
 const string CHARACTER_MINE = "☼";
 
-const string RED = "\x1B[91m";
-const string GREEN = "\x1B[92m";
-const string YELLOW = "\x1B[93m";
-const string BLUE = "\x1B[94m";
-const string BLACK = "\x1B[30m";
-const string BG_DARK_GRAY = "\x1B[100m";
-
 namespace field {
-
-struct Difficulty {
-	public:
-		COORD dimensions;
-		short mines;
-		
-		Difficulty() {}
-		Difficulty(const COORD& desiredDimensions, const short& desiredMines) : dimensions(desiredDimensions), mines(desiredMines) {}
-};
-
-Difficulty difficulties[3] = {
-	Difficulty(COORD{9, 9}, 10),
-	Difficulty(COORD{16, 16}, 40),
-	Difficulty(COORD{30, 16}, 99)
-};
 
 enum State {
 	BLANK,
@@ -772,102 +832,100 @@ class Field {
 		
 		/**
 		 * Attempt to flag the currently selected cell
+		 * @param result points to a set where pointers to newly flagged/unflagged cells will be placed.
+		 * @return the current game status.
 		 */
-		void flagSpace() {
-			if(gameStatus != PLAYING) {
-				return;
-			}
-			
+		GameStatus flagSpace(unordered_set<const Cell*>* result = nullptr) {
 			short row, col;
-			if(!isValidCurrentCursorPosition(row, col)) {
-				return;
+			if(gameStatus == PLAYING && isValidCurrentCursorPosition(row, col)) {
+				Cell& cell = cells.at(row).at(col);
+				short flagActionStatus = cell.toggleFlag();
+				mineCount -= flagActionStatus;
+				print(cell);
+				
+				if(result != nullptr && flagActionStatus != 0) {
+					result->insert(&cell);
+				}
 			}
 			
-			Cell& cell = cells.at(row).at(col);
-			mineCount -= cell.toggleFlag();
-			print(cell);
+			return getGameStatus();
 		}
 		
 		/**
 		 * Attempt to reveal the currently selected cell
 		 * @param result points to a set where pointers to newly revealed cells will be placed
+		 * @return the current game status.
 		 */
-		void revealSpace(unordered_set<const Cell*>* result = nullptr) {
+		GameStatus revealSpace(unordered_set<const Cell*>* result = nullptr) {
 			short row, col;
-			if(!isValidCurrentCursorPosition(row, col)) {
-				return;
-			}
-			
-			if(gameStatus == UNSTARTED) {
-				init();
-			}
-			else if(gameStatus != PLAYING) {
-				return;
-			}
-			
-			Cell& cell = cells.at(row).at(col);
-			State cellState = cell.reveal();
-			print(cell);
-			
-			if(result != nullptr) {
-				result->insert(&cell);
-			}
-			
-			switch(cellState) {
-				case MINE: {
-					lose();
-					break;
+			if(isValidCurrentCursorPosition(row, col)) {
+				if(gameStatus == UNSTARTED) {
+					init();
 				}
-				case BLANK: {
-					unordered_set<const Cell*> neighbors = getAdjacentCells(row, col);
-					for(const Cell* neighbor : neighbors) {
-						moveCursorTo(neighbor->row, neighbor->col);
-						revealSpace(result);
+				
+				if(gameStatus == PLAYING) {
+					Cell& cell = cells.at(row).at(col);
+					State cellState = cell.reveal();
+					print(cell);
+					
+					if(result != nullptr && cellState != FAIL) {
+						result->insert(&cell);
 					}
-				}
-				case NUMBER: { //fall-through because these are common to both BLANK and NUMBER cases
-					if(--remainingSpaces == 0) {
-						win();
+					
+					switch(cellState) {
+						case MINE: {
+							lose();
+							break;
+						}
+						case BLANK: {
+							unordered_set<const Cell*> neighbors = getAdjacentCells(row, col);
+							for(const Cell* neighbor : neighbors) {
+								moveCursorTo(neighbor->row, neighbor->col);
+								revealSpace(result);
+							}
+						}
+						case NUMBER: { //fall-through because these are common to both BLANK and NUMBER cases
+							if(--remainingSpaces == 0) {
+								win();
+							}
+						}
 					}
 				}
 			}
+			
+			return getGameStatus();
 		}
 		
 		/**
 		 * Attempt to chord the currently selected cell
 		 * @param result points to a set where pointers to newly revealed cells will be placed
+		 * @return the current game status.
 		 */
-		void chordSpace(unordered_set<const Cell*>* result = nullptr) {
-			if(gameStatus != PLAYING) {
-				return;
-			}
-			
+		GameStatus chordSpace(unordered_set<const Cell*>* result = nullptr) {
 			short row, col;
-			if(!isValidCurrentCursorPosition(row, col)) {
-				return;
-			}
-			
-			Cell& cell = cells.at(row).at(col);
-			short number = cell.getNumber();
-			if(!number) {
-				return;
-			}
-			
-			//Count adjacent flags
-			unordered_set<const Cell*> neighbors = getAdjacentCells(row, col);
-			short numNeighboringFlags = 0;
-			for(const Cell* neighbor : neighbors) {
-				if(neighbor->flagged)
-					numNeighboringFlags++;
-			}
-			
-			//If count is correct, reveal all non-flagged cells
-			if(numNeighboringFlags == number) {
-				for(const Cell* neighbor : neighbors) {
-					moveCursorTo(neighbor->row, neighbor->col);
-					revealSpace(result);
+			if(gameStatus == PLAYING && isValidCurrentCursorPosition(row, col)) {
+				Cell& cell = cells.at(row).at(col);
+				short number = cell.getNumber();
+				if(number) {
+					//Count adjacent flags
+					unordered_set<const Cell*> neighbors = getAdjacentCells(row, col);
+					short numNeighboringFlags = 0;
+					for(const Cell* neighbor : neighbors) {
+						if(neighbor->flagged)
+							numNeighboringFlags++;
+					}
+					
+					//If count is correct, reveal all non-flagged cells
+					if(numNeighboringFlags == number) {
+						for(const Cell* neighbor : neighbors) {
+							moveCursorTo(neighbor->row, neighbor->col);
+							revealSpace(result);
+						}
+					}
 				}
 			}
+			
+			return getGameStatus();
 		}
 };
 

@@ -1,10 +1,33 @@
 #include "ms.h"
 
-int main()
-{
-	SetConsoleTitle("Minesweeper: \"Custom Difficulty, and a User Interface to do it in!\"");
-	
-	COORD windowSize;
+COORD windowSize;
+
+struct Difficulty {
+	public:
+		COORD dimensions;
+		short mines;
+		
+		Difficulty() {}
+		Difficulty(const COORD& desiredDimensions, const short& desiredMines) : dimensions(desiredDimensions), mines(desiredMines) {}
+};
+
+Difficulty difficulties[3] = {
+	Difficulty(COORD{9, 9}, 10),
+	Difficulty(COORD{16, 16}, 40),
+	Difficulty(COORD{30, 16}, 99)
+};
+
+void checkForGameEnd(const GameStatus& currentGameStatus) {
+	if(currentGameStatus == GameStatus::LOST) {
+		window::printInRectangle(color("☹", text::WHITE), COORD{short(windowSize.X / 2), 1});
+	}
+	else if(currentGameStatus == GameStatus::WON) {
+		window::printInRectangle(color("☺", text::WHITE), COORD{short(windowSize.X / 2), 1});
+	}
+}
+
+int main() {
+	SetConsoleTitle("Minesweeper: \"Graphical!\"");
 	
 	//Font settings
 	CONSOLE_FONT_INFOEX menuFont = {};
@@ -43,28 +66,23 @@ int main()
 		COORD inputLocation = COORD{4, short(windowSize.Y - 2)};
 		
 		window::initialize(menuFont, windowSize);
-		
-		cout << BLACK;
-		cout << BG_DARK_GRAY;
-		window::printEdgeBorders(windowSize, 2, 2, short(inputLocation.Y - 1));
-		cout << END;
-		cout << END;
+		window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
 		
 		window::printInRectangle("Main Menu", COORD{1, 1});
 		window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
 		window::Table()
 				.atPosition(COORD{4, 3})
 				.addRow()
-						.addCell(window::FlexibleString().addText(GREEN, 0).addText("1").addText(END, 0), COORD{6, 1})
+						.addCell(color("1", text::GREEN), COORD{6, 1})
 						.addCell("Beginner Game")
 				.addRow()
-						.addCell(window::FlexibleString().addText(YELLOW, 0).addText("2").addText(END, 0))
+						.addCell(color("2", text::YELLOW))
 						.addCell("Intermediate Game")
 				.addRow()
-						.addCell(window::FlexibleString().addText(RED, 0).addText("3").addText(END, 0))
+						.addCell(color("3", text::RED))
 						.addCell("Expert Game")
 				.addRow()
-						.addCell(window::FlexibleString().addText(BLUE, 0).addText("4").addText(END, 0))
+						.addCell(color("4", text::BLUE))
 						.addCell("Custom Game")
 				.addRow()
 						.addCell("5")
@@ -79,7 +97,7 @@ int main()
 		
 		short menuChoice;
 		try {
-			menuChoice = window::getNumericInput(inputLocation, 1, window::inNumericRange(1, 5));
+			menuChoice = window::getInput(inputLocation, 1, inNumericRange(1, 5));
 		} catch(window::UserExitException e) {
 			return 0;
 		}
@@ -93,66 +111,59 @@ int main()
 					break;
 				case 4: { //custom difficulty
 					window::initialize(menuFont, windowSize);
-					
-					cout << BLACK;
-					cout << BG_DARK_GRAY;
-					window::printEdgeBorders(windowSize, 1, 2);
-					cout << END;
-					cout << END;
+					window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 1, 2);
 					
 					window::printInRectangle("Custom Game", COORD{1, 1});
 					
 					//Get user input for board dimensions
 					window::printInRectangle("Board width?", COORD{4, 3});
 					window::printInRectangle(">", COORD{24, 3});
-					short boardWidth = window::getNumericInput(COORD{25, 3}, 4, window::inNumericRange(1, 9999));
+					short boardWidth = window::getInput(COORD{25, 3}, 4, inNumericRange(1, 9999));
 					
 					window::printInRectangle("Board height?", COORD{4, 4});
 					window::printInRectangle(">", COORD{24, 4});
-					short boardHeight = window::getNumericInput(COORD{25, 4}, 4, window::inNumericRange(1, 9999));
+					short boardHeight = window::getInput(COORD{25, 4}, 4, inNumericRange(1, 9999));
 					
 					//Get user input for number of mines, and set the custom difficulty accordingly
 					window::printInRectangle("Number of mines?", COORD{4, 5});
 					window::printInRectangle(">", COORD{24, 5});
 					difficulty = Difficulty (
 							COORD{boardWidth, boardHeight},
-							window::getNumericInput(COORD{25, 5}, 4, window::inNumericRange(0, boardWidth * boardHeight))
+							window::getInput(COORD{25, 5}, 4, inNumericRange(0, boardWidth * boardHeight))
 					);
 					break;
 				}
-				case 5: //controls
+				case 5: { //controls
 					window::initialize(menuFont, windowSize);
-					
-					cout << BLACK;
-					cout << BG_DARK_GRAY;
-					window::printEdgeBorders(windowSize, 2, 2, short(inputLocation.Y - 1));
-					cout << END;
-					cout << END;
+					window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
 					
 					window::printInRectangle("Controls", COORD{1, 1});
 					window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
+					const int controlMenuColor = text::DARK_BLUE;
 					window::Table()
 							.atPosition(COORD{4, 3})
 							.addRow()
-									.addCell(window::FlexibleString().addText(BLUE, 0).addText("ARROW KEYS").addText(END, 0), COORD{11, 1})
+									.addCell(color("ARROW KEYS", controlMenuColor), COORD{11, 1})
 									.addCell("Move cursor (hold ALT to    jump to screen edge)", COORD{27, 2})
 							.addRow()
-									.addCell(window::FlexibleString().addText(BLUE, 0).addText("ENTER").addText(END, 0))
+									.addCell(color("ENTER", controlMenuColor))
 									.addCell("Reveal a space")
 							.addRow()
-									.addCell(window::FlexibleString().addText(BLUE, 0).addText("SPACE BAR").addText(END, 0))
+									.addCell(color("SPACE BAR", controlMenuColor))
 									.addCell("Flag a space")
 							.addRow()
-									.addCell(window::FlexibleString().addText(BLUE, 0).addText("C").addText(END, 0))
+									.addCell(color("C", controlMenuColor))
 									.addCell("Chord a number (reveal all  unflagged adjacent spaces)", COORD{27, 2})
 							.addRow()
-									.addCell(window::FlexibleString().addText(BLUE, 0).addText("ESC").addText(END, 0))
+									.addCell(color("ESC", controlMenuColor))
 									.addCell("Exit")
 							.print();
-					window::getNumericInput(inputLocation, 1, window::inNumericRange(1, -1));
+					window::getInput(inputLocation, 1, inNumericRange(1, -1));
 					break;
-				case 6: //high scores
+				}
+				case 6: {//high scores
 					break;
+				}
 			}
 		} catch(window::UserExitException e) {
 			continue;
@@ -164,12 +175,7 @@ int main()
 		window::scaleFontSizeToFit(gameFont, windowSize);
 		
 		window::initialize(gameFont, windowSize);
-		
-		cout << BLACK;
-		cout << BG_DARK_GRAY;
-		window::printEdgeBorders(windowSize, 1, 2);
-		cout << END;
-		cout << END;
+		window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 1, 2);
 		
 		//Create the minefield
 		Field minefield (
@@ -186,52 +192,18 @@ int main()
 		COORD min = minefield.getPositionMin();
 		COORD max = minefield.getPositionMax();
 		
+		//Display initial mine count
+		window::printInRectangle(color(getTextFromNumericField(minefield.getMineCount(), 4), text::RED), COORD{1, 1});
+		
 		bool exit = false;
-		short lastKnownMineCount = -1;
 		short lastKnownTime = -1;
-		field::GameStatus lastKnownGameStatus = field::UNSTARTED;
 		do {
-			//Display UI elements if they need updating
-			short currentMineCount = minefield.getMineCount();
+			//Display UI timer if it needs updating
 			short currentTime = minefield.getElapsedTime() / 1000;
-			field::GameStatus currentStatus = minefield.getGameStatus();
-			if(currentMineCount != lastKnownMineCount) {
-				window::hideCursor();
-				char uiOutputString[4];
-				
-				sprintf(uiOutputString, "%04d", currentMineCount);
-				window::printInRectangle(RED + uiOutputString + END, COORD{1, 1});
-				lastKnownMineCount = currentMineCount;
-				
-				SetConsoleCursorPosition(window::handleOut, position);
-				window::showCursor();
-			}
-			
 			if(currentTime != lastKnownTime) {
 				window::hideCursor();
-				char uiOutputString[4];
-				
-				sprintf(uiOutputString, "%04d", currentTime);
-				window::printInRectangle(RED + uiOutputString + END, COORD{short(windowSize.X - 5), 1});
+				window::printInRectangle(color(getTextFromNumericField(currentTime, 4), text::RED), COORD{short(windowSize.X - 5), 1});
 				lastKnownTime = currentTime;
-				
-				SetConsoleCursorPosition(window::handleOut, position);
-				window::showCursor();
-			}
-			
-			if(currentStatus != lastKnownGameStatus) {
-				window::hideCursor();
-				char uiOutputString[4];
-				
-				if(currentStatus == field::GameStatus::LOST) {
-					window::printInRectangle("☹", COORD{short(windowSize.X / 2), 1});
-				}
-				else if(currentStatus == field::GameStatus::WON) {
-					window::printInRectangle("☺", COORD{short(windowSize.X / 2), 1});
-				}
-				
-				lastKnownGameStatus = currentStatus;
-				
 				SetConsoleCursorPosition(window::handleOut, position);
 				window::showCursor();
 			}
@@ -297,13 +269,20 @@ int main()
 								position.X++;
 						break;
 					case VK_RETURN:
-						minefield.revealSpace();
+						checkForGameEnd (
+								minefield.revealSpace()
+						);
 						break;
 					case VK_SPACE:
 						minefield.flagSpace();
+						
+						//Display mine count
+						window::printInRectangle(color(getTextFromNumericField(minefield.getMineCount(), 4), text::RED), COORD{1, 1});
 						break;
 					case 'C':
-						minefield.chordSpace();
+						checkForGameEnd (
+								minefield.chordSpace()
+						);
 						break;
 				}
 				
