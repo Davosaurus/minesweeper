@@ -14,8 +14,8 @@ using namespace std;
 mt19937 randomizer{(unsigned int)time(0)};
 
 struct FlexibleStringComponent {
-	short length;
 	const string text;
+	short length;
 	
 	FlexibleStringComponent(const string& desiredText, const short& desiredLength) : text(desiredText), length(desiredLength) {}
 	
@@ -140,6 +140,17 @@ const string getTextFromNumericField(const int& field, const int& length) {
 	const char* format = ("%0" + to_string(length) + "d").c_str();
 	sprintf(outputString, format, field);
 	return outputString;
+}
+
+namespace character {
+	const FlexibleStringComponent BORDER_CROSS = FlexibleStringComponent("╬", 1);
+	const FlexibleStringComponent BORDER_HORIZONTAL = FlexibleStringComponent("═", 1);
+	const FlexibleStringComponent BORDER_VERTICAL = FlexibleStringComponent("║", 1);
+	const FlexibleStringComponent BLANK = FlexibleStringComponent(" ", 1);
+	const FlexibleStringComponent FLAG = FlexibleStringComponent("ľ", 1);
+	const FlexibleStringComponent MINE = FlexibleStringComponent("☼", 1);
+	const FlexibleStringComponent INDICATOR_WON = FlexibleStringComponent("☺", 1);
+	const FlexibleStringComponent INDICATOR_LOST = FlexibleStringComponent("☹", 1);
 }
 
 namespace window {
@@ -283,9 +294,9 @@ void printInRectangle(const string& text, const COORD& beginPosition, const COOR
 void printEdgeBorders(const COORD& windowSize, const int& colorCodeText, const int& colorCodeBackground, const int& numHorizontalSeparators = 0, ...) {
 	COORD max = COORD{short(windowSize.X - 1), short(windowSize.Y - 1)};
 	
-	const FlexibleString borderCorner = color(FlexibleStringComponent("╬", 1), colorCodeText, colorCodeBackground);
-	const FlexibleString borderEdgeHorizontal = color(FlexibleStringComponent("═", 1), colorCodeText, colorCodeBackground);
-	const FlexibleString borderEdgeVertical = color(FlexibleStringComponent("║", 1), colorCodeText, colorCodeBackground);
+	const FlexibleString borderCorner = color(character::BORDER_CROSS, colorCodeText, colorCodeBackground);
+	const FlexibleString borderEdgeHorizontal = color(character::BORDER_HORIZONTAL, colorCodeText, colorCodeBackground);
+	const FlexibleString borderEdgeVertical = color(character::BORDER_VERTICAL, colorCodeText, colorCodeBackground);
 	
 	//4 corners
 	printInRectangle(borderCorner, COORD{0, 0});
@@ -445,16 +456,11 @@ string getTextInput(const COORD& screenPosition, const short& maxLength, const f
 	}
 }
 
-short getInput(const COORD& screenPosition, const short& maxLength, const function<bool(const string&)>& validate = [](const string& input) { return true; }) {
+int getNumericInput(const COORD& screenPosition, const short& maxLength, const function<bool(const string&)>& validate = [](const string& input) { return true; }) {
 	return stoi(getTextInput(screenPosition, maxLength, validate));
 }
 
 }
-
-const string CHARACTER_BLANK = " ";
-const string CHARACTER_HIDDEN = ansiSequence(47) + CHARACTER_BLANK + ansiSequence(0);
-const string CHARACTER_FLAG = ansiSequence(91) + ansiSequence(47) + "ľ" + ansiSequence(0);
-const string CHARACTER_MINE = "☼";
 
 namespace field {
 
@@ -480,9 +486,9 @@ class Cell {
 				col(desiredCol),
 				state(UNINITIALIZED) {}
 		
-		/*
-		 *  Attempt to initialize the cell
-		 *  Returns whether attempt was successful
+		/**
+		 * Attempt to initialize the cell
+		 * Returns whether attempt was successful
 		 */
 		const bool init(const State& desiredState, const short& desiredNumber = 0) {
 			if(state != UNINITIALIZED) {
@@ -574,16 +580,14 @@ class Cell {
 				return 0;
 			}
 		}
-};
-
-class Field;
-
-class FieldEvaluator {
-	public:
+		
 		/**
-		 * @return whether the given Field is acceptable; that is, whether or not it meets the specific criteria defined by this particular Evaluator
+		 * Whether the cell is flagged or not
+		 * @return true if the cell is flagged.
 		 */
-		virtual bool evaluate(const Field& field) const = 0;
+		const bool isFlagged() const {
+			return flagged;
+		}
 };
 
 enum GameStatus {
@@ -598,27 +602,22 @@ class Field {
 		//set at construction
 		const short rows;					//number of rows
 		const short cols;					//number of columns
-		const short mines;					//number of mines
+		const int mines;					//number of mines
 		const COORD positionOffset;			//position of the board's top-left corner in the screen coordinate system
-		const FieldEvaluator& evaluator;	//arbitrary decisionmaking engine that determines if a field is valid to play, based on the state at initialization
-
+		const function<bool(const Field& field, const short& row, const short& col)> evaluate;
+											//arbitrary function that determines if a field is valid to play, based on the state at initialization
+		
 		//updated thoughout the game
 		GameStatus gameStatus = UNSTARTED;	//current status of the game
-		short remainingSpaces;				//number of safe spaces (not mines) that remain hidden
-		short mineCount;					//number of mines minus the number of placed flags
+		int remainingSpaces;				//number of safe spaces (not mines) that remain hidden
+		int mineCount;						//number of mines minus the number of placed flags
 		ULONGLONG startTime;				//system time when the game was started
 		ULONGLONG endTime;					//system time when the game was completed
 		vector<vector<Cell>> cells;			//holds all cells
 		
-		void printToScreen() const {
-			for(short row = 0; row < rows; row++) {
-				moveCursorTo(row, 0);
-				for(short col = 0; col < cols; col++) {
-					print(cells.at(row).at(col));
-				}
-			}
-		}
-		
+		/**
+		 * Reset the field by reinitializing the cells vector with newly created cells (uninitialized state)
+		 */
 		void resetBoard() {
 			cells = vector<vector<Cell>>();
 			for(short row = 0; row < rows; row++) {
@@ -629,96 +628,60 @@ class Field {
 			}
 		}
 		
-		void init() {
+		/**
+		 * Initialize the field by placing mines and generating all blank and number spaces
+		 * @param row is the row of the cell about to be revealed.
+		 * @param col is the column of the cell about to be revealed.
+		 * @return a pointer to the cell about to be revealed.
+		 */
+		Cell* init(const short row, const short col) {
+			int numCells = rows * cols;
 			//Construct a distribution which, when given a randomizer, can produce a number that refers to a unique cell in the field space
-			uniform_int_distribution<> generateNumberInRangeUsing(0, rows * cols - 1);
+			uniform_int_distribution<> generateNumberInRangeUsing(0, numCells - 1);
+			
+			gameStatus = PLAYING;
+			startTime = GetTickCount64();
 			
 			do {
 				resetBoard();
 				
 				//Generate mines
-				for(short numberOfMinesPlaced = 0; numberOfMinesPlaced < mines; ) {
+				for(int numberOfMinesPlaced = 0; numberOfMinesPlaced < mines; ) {
 					int index = generateNumberInRangeUsing(randomizer);
-					Cell& candidate = cells.at(index/cols).at(index%cols);
-					if(candidate.init(MINE)) {
+					short candidateRow = index / cols;
+					short candidateCol = index % cols;
+					// if(candidateRow == row && candidateCol == col && mines != numCells) {
+						// continue;
+					// }
+					Cell* candidate = at(candidateRow, candidateCol);
+					if(candidate->init(MINE)) {
 						numberOfMinesPlaced++;
 					}
 				}
-			} while(!evaluator.evaluate(*this));
+				
+				//Generate adjacent numbers
+				for(vector<Cell>& row : cells) {
+					for(Cell& cell : row) {
+						short sumOfNeighboringMines = 0;
+						unordered_set<Cell*> neighbors = getAdjacentCells(&cell);
+						for(Cell* neighbor : neighbors) {
+							if(neighbor->state == MINE) {
+								sumOfNeighboringMines++;
+							}
+						}
+						
+						cell.init(NUMBER, sumOfNeighboringMines);
+					}
+				}
+			} while(!evaluate(*this, row, col));
 			
-			//Generate adjacent numbers
-			for(short row = 0; row < rows; row++) {
-				for(short col = 0; col < cols; col++) {
-					Cell& cell = cells.at(row).at(col);
-					
-					short sumOfNeighboringMines = 0;
-					unordered_set<const Cell*> neighbors = getAdjacentCells(row, col);
-					for(const Cell* neighbor : neighbors) {
-						if(neighbor->state == MINE) {
-							sumOfNeighboringMines++;
-						}
-					}
-					
-					cell.init(NUMBER, sumOfNeighboringMines);
-				}
-			}
-			
-			gameStatus = PLAYING;
-			startTime = GetTickCount64();
+			startTime = GetTickCount64(); //reset timer to eliminate delay from board generation and validation
+			return at(row, col);
 		}
 		
-		void moveCursorTo(const short& desiredRow, const short& desiredCol) const {
-			SetConsoleCursorPosition(
-				window::handleOut,
-				COORD{short(desiredCol + positionOffset.X), short(desiredRow + positionOffset.Y)}
-			);
-		}
-		
-		void getCoordsFromCursorPosition(short& row, short& col) const {
-			COORD cursorPosition = window::getCursorPosition();
-			row = cursorPosition.Y - positionOffset.Y;
-			col = cursorPosition.X - positionOffset.X;
-		}
-		
-		/**
-		 * Print the given cell to the screen
-		 */
-		void print(const Cell& cell) const {
-			if(cell.hidden) {
-				if(cell.flagged) {
-					if(gameStatus != PLAYING) {
-						if(cell.state == MINE) {
-							cout << CHARACTER_MINE; //display good mine
-						}
-						else {
-							cout << CHARACTER_FLAG; //display bad flag
-						}
-					}
-					else {
-						cout << CHARACTER_FLAG;
-					}
-				}
-				else { //not flagged
-					if(gameStatus != UNSTARTED && gameStatus != PLAYING && cell.state == MINE) { //game over scenario, unexploded mine
-						cout << CHARACTER_MINE; //display neutral mine
-					}
-					else {
-						cout << CHARACTER_HIDDEN;
-					}
-				}
-			}
-			else if(cell.state == BLANK) {
-				cout << CHARACTER_BLANK;
-			}
-			else if(cell.state == NUMBER) {
-				cout << to_string(cell.number);
-			}
-			else if(cell.state == MINE) {
-				cout << CHARACTER_MINE; //display extra bad mine
-			}
-			else {
-				cout << "?";
-			}
+		void getFieldCoordinatesFromScreenCoord(const COORD& screenPosition, short& row, short& col) const {
+			row = screenPosition.Y - positionOffset.Y;
+			col = screenPosition.X - positionOffset.X;
 		}
 		
 		const bool isValidSpace(const short& row, const short& col) const {
@@ -726,56 +689,69 @@ class Field {
 				&& col >= 0 && col < cols;
 		}
 		
-		const bool isValidCurrentCursorPosition(short& row, short& col) const {
-			getCoordsFromCursorPosition(row, col);
-			return isValidSpace(row, col);
+		Cell* at(const short& row, const short& col) {
+			return &cells.at(row).at(col);
 		}
 		
-		unordered_set<const Cell*> getAdjacentCells(const short& rowPos, const short& colPos) const {
-			unordered_set<const Cell*> result;
-			for(short rowModifier = -1; rowModifier <= 1; rowModifier++)
-			{
-				for(short colModifier = -1; colModifier <= 1; colModifier++)
-				{
-					short row = rowPos + rowModifier;
-					short col = colPos + colModifier;
-					if(    isValidSpace(row, col)				//coordinates requested are within field bounds
-						&& !(row == rowPos && col == colPos))	//coordinates are not the same as the original space
-						result.insert(&cells.at(row).at(col));
+		Cell* at(const COORD& screenPosition) {
+			short row, col;
+			getFieldCoordinatesFromScreenCoord(screenPosition, row, col);
+			return at(row, col);
+		}
+		
+		unordered_set<Cell*> getAdjacentCells(Cell* cell) {
+			unordered_set<Cell*> result;
+			for(short rowModifier = -1; rowModifier <= 1; rowModifier++) {
+				for(short colModifier = -1; colModifier <= 1; colModifier++) {
+					const short row = cell->row + rowModifier;
+					const short col = cell->col + colModifier;
+					if(!(row == cell->row && col == cell->col)	//coordinates are not the same as the original space
+						&& isValidSpace(row, col)) {			//coordinates requested are within field bounds
+						result.insert(at(row, col));
+					}
 				}
 			}
 			return result;
 		}
 		
-		void lose() {
+		void lose(unordered_set<Cell*>* const result = nullptr) {
 			gameStatus = LOST;
 			endTime = GetTickCount64();
-			printToScreen();
+			
+			if(result != nullptr) {
+				for(vector<Cell>& row : cells) {
+					for(Cell& cellObject : row) {
+						Cell* cell = &cellObject;
+						if(cell->state == MINE || (cell->hidden && cell->flagged)) {
+							cell->hidden = false;
+							result->insert(cell);
+						}
+					}
+				}
+			}
 		}
 		
 		void win() {
 			gameStatus = WON;
 			endTime = GetTickCount64();
-			printToScreen();
 		}
 	
 	public:
 		Field(
 				const COORD& desiredSize,
-				const short& desiredMines,
+				const int& desiredMines,
 				const COORD& desiredPosition,
-				const FieldEvaluator& desiredFieldEvaluator
+				const function<bool(const Field& field, const short& row, const short& col)>& desiredFieldEvaluator
 		) :
 				rows(desiredSize.Y),
 				cols(desiredSize.X),
 				mines(desiredMines),
+				mineCount(desiredMines),
 				positionOffset(desiredPosition),
-				evaluator(desiredFieldEvaluator)
+				evaluate(desiredFieldEvaluator)
 		{
 			remainingSpaces = rows * cols - mines;
-			mineCount = mines;
 			resetBoard();
-			printToScreen();
 		}
 		
 		/**
@@ -793,6 +769,13 @@ class Field {
 		}
 		
 		/**
+		 * @return a coordinate that holds the position of the given cell, in the screen coordinate system.
+		 */
+		const COORD getPositionOf(Cell* cell) const {
+			return COORD{short(cell->col + positionOffset.X), short(cell->row + positionOffset.Y)};
+		}
+		
+		/**
 		 * @return the current game status.
 		 */
 		const GameStatus getGameStatus() const {
@@ -802,7 +785,7 @@ class Field {
 		/**
 		 * @return the current "Mine Count" of the game. Mine Count refers to the total number of mines in the game, minus the number of placed flags.
 		 */
-		const short getMineCount() const {
+		const int getMineCount() const {
 			return mineCount;
 		}
 		
@@ -821,129 +804,142 @@ class Field {
 		}
 		
 		/**
-		 * Move the cursor to the center of the field, and ensure it is not hidden
-		 * @return a coordinate that holds the new screen position of the cursor
-		 */
-		const COORD initializeCursor() const {
-			moveCursorTo(rows / 2, cols / 2);
-			window::showCursor();
-			return window::getCursorPosition();
-		}
-		
-		/**
-		 * Attempt to flag the currently selected cell
+		 * Attempt to flag the given cell
+		 * @param cell must point to a valid cell in this field.
 		 * @param result points to a set where pointers to newly flagged/unflagged cells will be placed.
-		 * @return the current game status.
+		 * @return the given cell.
 		 */
-		GameStatus flagSpace(unordered_set<const Cell*>* result = nullptr) {
-			short row, col;
-			if(gameStatus == PLAYING && isValidCurrentCursorPosition(row, col)) {
-				Cell& cell = cells.at(row).at(col);
-				short flagActionStatus = cell.toggleFlag();
+		Cell* flagSpace(Cell* cell, unordered_set<Cell*>* const result = nullptr) {
+			if(gameStatus == PLAYING) {
+				const short flagActionStatus = cell->toggleFlag();
 				mineCount -= flagActionStatus;
-				print(cell);
 				
 				if(result != nullptr && flagActionStatus != 0) {
-					result->insert(&cell);
+					result->insert(cell);
 				}
 			}
 			
-			return getGameStatus();
+			return cell;
+		}
+		
+		Cell* flagSpace(const short& row, const short& col, unordered_set<Cell*>* const result = nullptr) {
+			return flagSpace(at(row, col), result);
+		}
+		
+		Cell* flagSpace(const COORD& screenPosition, unordered_set<Cell*>* const result = nullptr) {
+			return flagSpace(at(screenPosition), result);
 		}
 		
 		/**
-		 * Attempt to reveal the currently selected cell
-		 * @param result points to a set where pointers to newly revealed cells will be placed
-		 * @return the current game status.
+		 * Attempt to reveal the given cell
+		 * @param cell must point to a valid cell in this field.
+		 * @param result points to a set where pointers to newly revealed cells will be placed.
+		 * @return the given cell.
 		 */
-		GameStatus revealSpace(unordered_set<const Cell*>* result = nullptr) {
-			short row, col;
-			if(isValidCurrentCursorPosition(row, col)) {
-				if(gameStatus == UNSTARTED) {
-					init();
+		Cell* revealSpace(Cell* cell, unordered_set<Cell*>* const result = nullptr) {
+			if(gameStatus == UNSTARTED) {
+				cell = init(cell->row, cell->col);
+			}
+			
+			if(gameStatus == PLAYING) {
+				const State cellState = cell->reveal();
+				
+				if(result != nullptr && cellState != FAIL) {
+					result->insert(cell);
 				}
 				
-				if(gameStatus == PLAYING) {
-					Cell& cell = cells.at(row).at(col);
-					State cellState = cell.reveal();
-					print(cell);
-					
-					if(result != nullptr && cellState != FAIL) {
-						result->insert(&cell);
+				switch(cellState) {
+					case MINE: {
+						lose(result);
+						break;
 					}
-					
-					switch(cellState) {
-						case MINE: {
-							lose();
-							break;
+					case BLANK: {
+						unordered_set<Cell*> neighbors = getAdjacentCells(cell);
+						for(Cell* neighbor : neighbors) {
+							revealSpace(neighbor, result);
 						}
-						case BLANK: {
-							unordered_set<const Cell*> neighbors = getAdjacentCells(row, col);
-							for(const Cell* neighbor : neighbors) {
-								moveCursorTo(neighbor->row, neighbor->col);
-								revealSpace(result);
-							}
-						}
-						case NUMBER: { //fall-through because these are common to both BLANK and NUMBER cases
-							if(--remainingSpaces == 0) {
-								win();
-							}
+					}
+					case NUMBER: { //fall-through because these are common to both BLANK and NUMBER cases
+						if(--remainingSpaces == 0) {
+							win();
 						}
 					}
 				}
 			}
 			
-			return getGameStatus();
+			return cell;
+		}
+		
+		Cell* revealSpace(const short& row, const short& col, unordered_set<Cell*>* const result = nullptr) {
+			return revealSpace(at(row, col), result);
+		}
+		
+		Cell* revealSpace(const COORD& screenPosition, unordered_set<Cell*>* const result = nullptr) {
+			return revealSpace(at(screenPosition), result);
 		}
 		
 		/**
-		 * Attempt to chord the currently selected cell
-		 * @param result points to a set where pointers to newly revealed cells will be placed
-		 * @return the current game status.
+		 * Attempt to chord the given cell
+		 * @param cell must point to a valid cell in this field.
+		 * @param result points to a set where pointers to newly revealed cells will be placed.
+		 * @return the given cell.
 		 */
-		GameStatus chordSpace(unordered_set<const Cell*>* result = nullptr) {
-			short row, col;
-			if(gameStatus == PLAYING && isValidCurrentCursorPosition(row, col)) {
-				Cell& cell = cells.at(row).at(col);
-				short number = cell.getNumber();
+		Cell* chordSpace(Cell* cell, unordered_set<Cell*>* const result = nullptr) {
+			if(gameStatus == PLAYING) {
+				const short number = cell->getNumber();
 				if(number) {
 					//Count adjacent flags
-					unordered_set<const Cell*> neighbors = getAdjacentCells(row, col);
+					unordered_set<Cell*> neighbors = getAdjacentCells(cell);
 					short numNeighboringFlags = 0;
-					for(const Cell* neighbor : neighbors) {
-						if(neighbor->flagged)
+					for(Cell* neighbor : neighbors) {
+						if(neighbor->isFlagged()) {
 							numNeighboringFlags++;
+						}
 					}
 					
-					//If count is correct, reveal all non-flagged cells
+					//If count is correct, reveal all non-flagged cells (attempt to reveal all adjacent cells, flagged cells will be ignored)
 					if(numNeighboringFlags == number) {
-						for(const Cell* neighbor : neighbors) {
-							moveCursorTo(neighbor->row, neighbor->col);
-							revealSpace(result);
+						for(Cell* neighbor : neighbors) {
+							revealSpace(neighbor, result);
 						}
 					}
 				}
 			}
 			
-			return getGameStatus();
+			return cell;
+		}
+		
+		Cell* chordSpace(const short& row, const short& col, unordered_set<Cell*>* const result = nullptr) {
+			return chordSpace(at(row, col), result);
+		}
+		
+		Cell* chordSpace(const COORD& screenPosition, unordered_set<Cell*>* const result = nullptr) {
+			return chordSpace(at(screenPosition), result);
 		}
 };
 
 } using namespace field;
 
-namespace evaluator {
+namespace fieldEvaluators {
 
-class RandomFieldEvaluator : public FieldEvaluator {
-	bool evaluate(const Field& field) const {
-		return true;
+bool safeStart(const Field& field, const short& row, const short& col) {
+	Field prospectiveField = Field(field);
+	prospectiveField.revealSpace(row, col);
+	return prospectiveField.getGameStatus() != LOST;
+}
+
+bool safeStartPlus(const Field& field, const short& row, const short& col) {
+	Field prospectiveField = Field(field);
+	
+	for(short rowModifier = -1; rowModifier <= 1; rowModifier++) {
+		for(short colModifier = -1; colModifier <= 1; colModifier++) {
+			try {
+				prospectiveField.revealSpace(row + rowModifier, col + colModifier);
+			}
+			catch(...) {}
+		}
 	}
-};
-
-class SafeStartFieldEvaluator : public FieldEvaluator {
-	bool evaluate(const Field& field) const {
-		//TODO
-		return true;
-	}
-};
-
-} using namespace evaluator;
+	return prospectiveField.getGameStatus() != LOST;
+}
+	
+}

@@ -5,10 +5,10 @@ COORD windowSize;
 struct Difficulty {
 	public:
 		COORD dimensions;
-		short mines;
+		int mines;
 		
 		Difficulty() {}
-		Difficulty(const COORD& desiredDimensions, const short& desiredMines) : dimensions(desiredDimensions), mines(desiredMines) {}
+		Difficulty(const COORD& desiredDimensions, const int& desiredMines) : dimensions(desiredDimensions), mines(desiredMines) {}
 };
 
 Difficulty difficulties[3] = {
@@ -17,12 +17,63 @@ Difficulty difficulties[3] = {
 	Difficulty(COORD{30, 16}, 99)
 };
 
-void checkForGameEnd(const GameStatus& currentGameStatus) {
+/**
+ * Print the given cell to the screen
+ */
+void print(Cell* const cell, const Field& minefield, const bool& losingMove = false) {
+	FlexibleString output;
+	
+	switch(cell->getState()) {
+		case FAIL: //this only means we are not allowed to know the state, i.e. the cell is hidden
+			if(cell->isFlagged()) {
+				output = color(character::FLAG, text::RED, background::GRAY);
+			}
+			else {
+				output = color(character::BLANK, background::GRAY);
+			}
+			break;
+		case BLANK:
+			output = color(character::BLANK, cell->isFlagged() ? background::DARK_RED : background::BLACK);
+			break;
+		case NUMBER:
+			output = color(to_string(cell->getNumber()), text::WHITE, cell->isFlagged() ? background::DARK_RED : background::BLACK);
+			break;
+		case MINE:
+			if(losingMove) {
+				output = color(character::MINE, text::WHITE, background::DARK_RED); //mine that was revealed (causing a loss)
+			}
+			else if(cell->isFlagged()) {
+				output = color(character::FLAG, text::RED, background::GRAY); //mine that was correctly flagged
+			}
+			else {
+				output = color(character::MINE, text::WHITE, background::BLACK); //mine that was never revealed or flagged
+			}
+			break;
+	}
+	
+	window::printInRectangle(output, minefield.getPositionOf(cell));
+}
+
+/**
+ * Print all the given cells to the screen
+ */
+template<typename ContainerType>
+void print(ContainerType* const cells, const Field& minefield) {
+	for(Cell* cell : *cells) {
+		print(cell, minefield);
+	}
+}
+
+void checkForGameEnd(Cell* const cell, const Field& minefield) {
+	GameStatus currentGameStatus = minefield.getGameStatus();
 	if(currentGameStatus == GameStatus::LOST) {
-		window::printInRectangle(color("☹", text::WHITE), COORD{short(windowSize.X / 2), 1});
+		window::printInRectangle(color(character::INDICATOR_LOST, text::WHITE, background::RED), COORD{short(windowSize.X / 2), 1});
+		
+		//Print extra bad space to show which move lost the game
+		print(cell, minefield, true);
 	}
 	else if(currentGameStatus == GameStatus::WON) {
-		window::printInRectangle(color("☺", text::WHITE), COORD{short(windowSize.X / 2), 1});
+		window::printInRectangle(color(character::INDICATOR_WON, text::WHITE, background::GREEN), COORD{short(windowSize.X / 2), 1});
 	}
 }
 
@@ -97,7 +148,7 @@ int main() {
 		
 		short menuChoice;
 		try {
-			menuChoice = window::getInput(inputLocation, 1, inNumericRange(1, 5));
+			menuChoice = window::getNumericInput(inputLocation, 1, inNumericRange(1, 5));
 		} catch(window::UserExitException e) {
 			return 0;
 		}
@@ -118,18 +169,18 @@ int main() {
 					//Get user input for board dimensions
 					window::printInRectangle("Board width?", COORD{4, 3});
 					window::printInRectangle(">", COORD{24, 3});
-					short boardWidth = window::getInput(COORD{25, 3}, 4, inNumericRange(1, 9999));
+					short boardWidth = window::getNumericInput(COORD{25, 3}, 4, inNumericRange(1, 9999));
 					
 					window::printInRectangle("Board height?", COORD{4, 4});
 					window::printInRectangle(">", COORD{24, 4});
-					short boardHeight = window::getInput(COORD{25, 4}, 4, inNumericRange(1, 9999));
+					short boardHeight = window::getNumericInput(COORD{25, 4}, 4, inNumericRange(1, 9999));
 					
 					//Get user input for number of mines, and set the custom difficulty accordingly
 					window::printInRectangle("Number of mines?", COORD{4, 5});
 					window::printInRectangle(">", COORD{24, 5});
 					difficulty = Difficulty (
 							COORD{boardWidth, boardHeight},
-							window::getInput(COORD{25, 5}, 4, inNumericRange(0, boardWidth * boardHeight))
+							window::getNumericInput(COORD{25, 5}, 8, inNumericRange(0, boardWidth * boardHeight))
 					);
 					break;
 				}
@@ -139,29 +190,35 @@ int main() {
 					
 					window::printInRectangle("Controls", COORD{1, 1});
 					window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
-					const int controlMenuColor = text::DARK_BLUE;
+					const int controlsKeyColor = text::DARK_BLUE;
+					const int controlsDescColor = text::DARK_GRAY;
 					window::Table()
 							.atPosition(COORD{4, 3})
 							.addRow()
-									.addCell(color("ARROW KEYS", controlMenuColor), COORD{11, 1})
-									.addCell("Move cursor (hold ALT to    jump to screen edge)", COORD{27, 2})
+									.addCell(color("ARROW KEYS", controlsKeyColor), COORD{11, 1})
+									.addCell(color("Move cursor (hold ALT to    jump to screen edge)", controlsDescColor), COORD{27, 2})
 							.addRow()
-									.addCell(color("ENTER", controlMenuColor))
-									.addCell("Reveal a space")
+									.addCell(color("ENTER", controlsKeyColor))
+									.addCell(color("Reveal a space", controlsDescColor))
 							.addRow()
-									.addCell(color("SPACE BAR", controlMenuColor))
-									.addCell("Flag a space")
+									.addCell(color("SPACE BAR", controlsKeyColor))
+									.addCell(color("Flag a space", controlsDescColor))
 							.addRow()
-									.addCell(color("C", controlMenuColor))
-									.addCell("Chord a number (reveal all  unflagged adjacent spaces)", COORD{27, 2})
+									.addCell(color("C", controlsKeyColor))
+									.addCell(color("Chord a number (reveal all  unflagged adjacent spaces)", controlsDescColor), COORD{27, 2})
 							.addRow()
-									.addCell(color("ESC", controlMenuColor))
-									.addCell("Exit")
+									.addCell(color("ESC", controlsKeyColor))
+									.addCell(color("Exit", controlsDescColor))
 							.print();
-					window::getInput(inputLocation, 1, inNumericRange(1, -1));
+					window::getNumericInput(inputLocation, 1, inNumericRange(1, -1));
 					break;
 				}
-				case 6: {//high scores
+				case 6: {//settings
+					//TODO
+					break;
+				}
+				case 7: {//high scores
+					//TODO
 					break;
 				}
 			}
@@ -174,6 +231,7 @@ int main() {
 		
 		window::scaleFontSizeToFit(gameFont, windowSize);
 		
+		system("color 70");
 		window::initialize(gameFont, windowSize);
 		window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 1, 2);
 		
@@ -181,19 +239,33 @@ int main() {
 		Field minefield (
 				difficulty.dimensions,
 				difficulty.mines,
-				COORD{1, 3},
-				RandomFieldEvaluator()
+				COORD{short((windowSize.X / 2) - (difficulty.dimensions.X / 2)), 3},
+				fieldEvaluators::safeStartPlus
 		);
 		
 		//Initialize cursor
-		COORD position = minefield.initializeCursor();
+		COORD position = COORD {
+				short((minefield.getPositionMin().X + minefield.getPositionMax().X) / 2),
+				short((minefield.getPositionMin().Y + minefield.getPositionMax().Y) / 2)
+		};
+		SetConsoleCursorPosition(window::handleOut, position);
+		window::showCursor();
 		
 		//Set minimum and maximum cursor bounds
 		COORD min = minefield.getPositionMin();
 		COORD max = minefield.getPositionMax();
 		
+		//Print header bar (blank)
+		window::printInRectangle(color(character::BLANK, background::BLACK), COORD{5, 1}, COORD{short(windowSize.X - 6), 1}, true);
+		
 		//Display initial mine count
 		window::printInRectangle(color(getTextFromNumericField(minefield.getMineCount(), 4), text::RED), COORD{1, 1});
+		
+		//Display blank sidebars (small boards only)
+		if(difficulty.dimensions.X < 9) {
+			window::printInRectangle(color(character::BLANK, background::BLACK), COORD{1, 3}, COORD{short(min.X - 1), short(windowSize.Y - 2)}, true);
+			window::printInRectangle(color(character::BLANK, background::BLACK), COORD{short(max.X + 1), 3}, COORD{short(windowSize.X - 2), short(windowSize.Y - 2)}, true);
+		}
 		
 		bool exit = false;
 		short lastKnownTime = -1;
@@ -235,6 +307,11 @@ int main() {
 				//Hide cursor
 				window::hideCursor();
 				
+				//Initialize empty cell set to hold the result of the action, if any
+				unordered_set<Cell*> resultSet;
+				unordered_set<Cell*>* const result = &resultSet;
+				Cell* resultingCell;
+				
 				//Handle input
 				switch(keyEvent.wVirtualKeyCode) {
 					case VK_ESCAPE:
@@ -269,22 +346,24 @@ int main() {
 								position.X++;
 						break;
 					case VK_RETURN:
-						checkForGameEnd (
-								minefield.revealSpace()
-						);
+						resultingCell = minefield.revealSpace(position, result);
 						break;
 					case VK_SPACE:
-						minefield.flagSpace();
+						resultingCell = minefield.flagSpace(position, result);
 						
 						//Display mine count
 						window::printInRectangle(color(getTextFromNumericField(minefield.getMineCount(), 4), text::RED), COORD{1, 1});
 						break;
 					case 'C':
-						checkForGameEnd (
-								minefield.chordSpace()
-						);
+						resultingCell = minefield.chordSpace(position, result);
 						break;
 				}
+				
+				//Print all new cells from the result of the operation
+				print(result, minefield);
+				
+				//Check for win/loss and display results
+				checkForGameEnd(resultingCell, minefield);
 				
 				//Set cursor position in case it changed
 				SetConsoleCursorPosition(window::handleOut, position);
