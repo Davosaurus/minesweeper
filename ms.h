@@ -597,6 +597,18 @@ enum GameStatus {
 	LOST
 };
 
+class Field;
+
+namespace evaluators {
+	
+	bool safeStart(const Field& field, const short& row, const short& col);
+	bool safeStartPlus(const Field& field, const short& row, const short& col);
+	
+	const function<bool(const Field& field, const short& row, const short& col)> safeStartFunction = safeStart;
+	const function<bool(const Field& field, const short& row, const short& col)> safeStartPlusFunction = safeStartPlus;
+	
+}
+
 class Field {
 	private:
 		//set at construction
@@ -604,7 +616,7 @@ class Field {
 		const short cols;					//number of columns
 		const int mines;					//number of mines
 		const COORD positionOffset;			//position of the board's top-left corner in the screen coordinate system
-		const function<bool(const Field& field, const short& row, const short& col)> evaluate;
+		const function<bool(const Field& field, const short& row, const short& col)>* evaluate;
 											//arbitrary function that determines if a field is valid to play, based on the state at initialization
 		
 		//updated thoughout the game
@@ -650,9 +662,23 @@ class Field {
 					int index = generateNumberInRangeUsing(randomizer);
 					short candidateRow = index / cols;
 					short candidateCol = index % cols;
-					// if(candidateRow == row && candidateCol == col && mines != numCells) {
-						// continue;
-					// }
+					
+					//Optimizations for some evaluators
+					if(evaluate == &field::evaluators::safeStartFunction) {
+						if(mines < numCells
+								&& candidateRow == row
+								&& candidateCol == col) {
+							continue;
+						}
+					}
+					else if(evaluate == &field::evaluators::safeStartPlusFunction) {
+						if(mines <= numCells - 9
+								&& candidateRow >= row - 1 && candidateRow <= row + 1
+								&& candidateCol >= col - 1 && candidateCol <= col + 1) {
+							continue;
+						}
+					}
+					
 					Cell* candidate = at(candidateRow, candidateCol);
 					if(candidate->init(MINE)) {
 						numberOfMinesPlaced++;
@@ -673,7 +699,7 @@ class Field {
 						cell.init(NUMBER, sumOfNeighboringMines);
 					}
 				}
-			} while(!evaluate(*this, row, col));
+			} while(!(*evaluate)(*this, row, col));
 			
 			startTime = GetTickCount64(); //reset timer to eliminate delay from board generation and validation
 			return at(row, col);
@@ -748,7 +774,7 @@ class Field {
 				mines(desiredMines),
 				mineCount(desiredMines),
 				positionOffset(desiredPosition),
-				evaluate(desiredFieldEvaluator)
+				evaluate(&desiredFieldEvaluator)
 		{
 			remainingSpaces = rows * cols - mines;
 			resetBoard();
@@ -918,9 +944,7 @@ class Field {
 		}
 };
 
-} using namespace field;
-
-namespace fieldEvaluators {
+namespace evaluators {
 
 bool safeStart(const Field& field, const short& row, const short& col) {
 	Field prospectiveField = Field(field);
@@ -941,5 +965,7 @@ bool safeStartPlus(const Field& field, const short& row, const short& col) {
 	}
 	return prospectiveField.getGameStatus() != LOST;
 }
-	
+
 }
+
+} using namespace field;

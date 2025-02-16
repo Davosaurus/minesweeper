@@ -240,7 +240,7 @@ int main() {
 				difficulty.dimensions,
 				difficulty.mines,
 				COORD{short((windowSize.X / 2) - (difficulty.dimensions.X / 2)), 3},
-				fieldEvaluators::safeStartPlus
+				field::evaluators::safeStartPlusFunction
 		);
 		
 		//Initialize cursor
