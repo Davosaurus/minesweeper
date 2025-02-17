@@ -17,6 +17,18 @@ Difficulty difficulties[3] = {
 	Difficulty(COORD{30, 16}, 99)
 };
 
+text::text numberColors[9] = {
+	text::WHITE,
+	text::BLUE,
+	text::DARK_GREEN,
+	text::RED,
+	text::DARK_BLUE,
+	text::DARK_RED,
+	text::DARK_CYAN,
+	text::DARK_GRAY,
+	text::GRAY
+};
+
 /**
  * Print the given cell to the screen
  */
@@ -36,7 +48,7 @@ void print(Cell* const cell, const Field& minefield, const bool& losingMove = fa
 			output = color(character::BLANK, cell->isFlagged() ? background::DARK_RED : background::BLACK);
 			break;
 		case NUMBER:
-			output = color(to_string(cell->getNumber()), text::WHITE, cell->isFlagged() ? background::DARK_RED : background::BLACK);
+			output = color(to_string(cell->getNumber()), numberColors[cell->getNumber()], cell->isFlagged() ? background::DARK_RED : background::BLACK);
 			break;
 		case MINE:
 			if(losingMove) {

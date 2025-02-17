@@ -664,18 +664,28 @@ class Field {
 					short candidateCol = index % cols;
 					
 					//Optimizations for some evaluators
-					if(evaluate == &field::evaluators::safeStartFunction) {
+					if(evaluate == &field::evaluators::safeStartFunction || evaluate == &field::evaluators::safeStartPlusFunction) {
 						if(mines < numCells
 								&& candidateRow == row
 								&& candidateCol == col) {
 							continue;
 						}
-					}
-					else if(evaluate == &field::evaluators::safeStartPlusFunction) {
-						if(mines <= numCells - 9
-								&& candidateRow >= row - 1 && candidateRow <= row + 1
-								&& candidateCol >= col - 1 && candidateCol <= col + 1) {
-							continue;
+						
+						if(evaluate == &field::evaluators::safeStartPlusFunction) {
+							short numRevealedCells = 0;
+							for(short rowModifier = -1; rowModifier <= 1; rowModifier++) {
+								for(short colModifier = -1; colModifier <= 1; colModifier++) {
+									if(isValidSpace(row + rowModifier, col + colModifier)) {
+										numRevealedCells++;
+									}
+								}
+							}
+							
+							if(mines <= numCells - numRevealedCells
+									&& candidateRow >= row - 1 && candidateRow <= row + 1
+									&& candidateCol >= col - 1 && candidateCol <= col + 1) {
+								continue;
+							}
 						}
 					}
 					
@@ -708,11 +718,6 @@ class Field {
 		void getFieldCoordinatesFromScreenCoord(const COORD& screenPosition, short& row, short& col) const {
 			row = screenPosition.Y - positionOffset.Y;
 			col = screenPosition.X - positionOffset.X;
-		}
-		
-		const bool isValidSpace(const short& row, const short& col) const {
-			return row >= 0 && row < rows
-				&& col >= 0 && col < cols;
 		}
 		
 		Cell* at(const short& row, const short& col) {
@@ -795,6 +800,20 @@ class Field {
 		}
 		
 		/**
+		 * @return number of rows.
+		 */
+		const short getRows() const {
+			return rows;
+		}
+		
+		/**
+		 * @return number of cols.
+		 */
+		const short getCols() const {
+			return cols;
+		}
+		
+		/**
 		 * @return a coordinate that holds the position of the given cell, in the screen coordinate system.
 		 */
 		const COORD getPositionOf(Cell* cell) const {
@@ -802,10 +821,25 @@ class Field {
 		}
 		
 		/**
+		 * @return whether the given row and column refer to a space within the bounds of the field.
+		 */
+		const bool isValidSpace(const short& row, const short& col) const {
+			return row >= 0 && row < rows
+				&& col >= 0 && col < cols;
+		}
+		
+		/**
 		 * @return the current game status.
 		 */
 		const GameStatus getGameStatus() const {
 			return gameStatus;
+		}
+		
+		/**
+		 * @return the current number of mines in the game. This refers to the total, regardless of placed flags or revealed spaces.
+		 */
+		const int getMines() const {
+			return mines;
 		}
 		
 		/**
@@ -947,22 +981,34 @@ class Field {
 namespace evaluators {
 
 bool safeStart(const Field& field, const short& row, const short& col) {
+	if(field.getMines() >= field.getRows() * field.getCols()) {
+		return true;
+	}
+	
 	Field prospectiveField = Field(field);
 	prospectiveField.revealSpace(row, col);
 	return prospectiveField.getGameStatus() != LOST;
 }
 
 bool safeStartPlus(const Field& field, const short& row, const short& col) {
+	int numCells = field.getRows() * field.getCols();
+	int numRevealedCells = 0;
+	
 	Field prospectiveField = Field(field);
 	
 	for(short rowModifier = -1; rowModifier <= 1; rowModifier++) {
 		for(short colModifier = -1; colModifier <= 1; colModifier++) {
-			try {
+			if(prospectiveField.isValidSpace(row + rowModifier, col + colModifier)) {
+				numRevealedCells++;
 				prospectiveField.revealSpace(row + rowModifier, col + colModifier);
 			}
-			catch(...) {}
 		}
 	}
+	
+	if(prospectiveField.getMines() > numCells - numRevealedCells) {
+		return true;
+	}
+	
 	return prospectiveField.getGameStatus() != LOST;
 }
 
