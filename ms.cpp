@@ -1,6 +1,25 @@
-#include "ms.h"
+#include "settings.h"
 
 COORD windowSize;
+
+//Font settings
+CONSOLE_FONT_INFOEX menuFont = {
+	sizeof(CONSOLE_FONT_INFOEX),	//cbSize
+	0,								//nFont
+	COORD{19, 36},					//dwFontSize
+	FF_MODERN,						//FontFamily
+	800,							//FontWeight
+	L"MS Gothic"					//FaceName
+};
+
+CONSOLE_FONT_INFOEX gameFont = {
+	sizeof(CONSOLE_FONT_INFOEX),
+	0,
+	COORD{18, 18},
+	FF_MODERN,
+	1000,
+	L"MS Gothic"
+};
 
 struct Difficulty {
 	public:
@@ -29,10 +48,22 @@ text::text numberColors[9] = {
 	text::GRAY
 };
 
+background::background numberColorsBackgrounds[9] = {
+	background::WHITE,
+	background::BLUE,
+	background::DARK_GREEN,
+	background::RED,
+	background::DARK_BLUE,
+	background::DARK_RED,
+	background::DARK_CYAN,
+	background::DARK_GRAY,
+	background::GRAY
+};
+
 /**
  * Print the given cell to the screen
  */
-void print(Cell* const cell, const Field& minefield, const bool& losingMove = false) {
+void print(Cell* const cell, const Field& minefield, Settings& settings, const bool& losingMove = false) {
 	FlexibleString output;
 	
 	switch(cell->getState()) {
@@ -48,7 +79,15 @@ void print(Cell* const cell, const Field& minefield, const bool& losingMove = fa
 			output = color(character::BLANK, cell->isFlagged() ? background::DARK_RED : background::BLACK);
 			break;
 		case NUMBER:
-			output = color(to_string(cell->getNumber()), numberColors[cell->getNumber()], cell->isFlagged() ? background::DARK_RED : background::BLACK);
+			output = color(
+					to_string(cell->getNumber()),
+					numberColors[cell->getNumber()],
+					cell->isFlagged()
+							? background::DARK_RED
+							: gameFont.dwFontSize.X < settings.getPixelDisplayThreshold()
+									? numberColorsBackgrounds[cell->getNumber()]
+									: background::BLACK
+			);
 			break;
 		case MINE:
 			if(losingMove) {
@@ -70,19 +109,19 @@ void print(Cell* const cell, const Field& minefield, const bool& losingMove = fa
  * Print all the given cells to the screen
  */
 template<typename ContainerType>
-void print(ContainerType* const cells, const Field& minefield) {
+void print(ContainerType* const cells, const Field& minefield, Settings& settings) {
 	for(Cell* cell : *cells) {
-		print(cell, minefield);
+		print(cell, minefield, settings);
 	}
 }
 
-void checkForGameEnd(Cell* const cell, const Field& minefield) {
+void checkForGameEnd(Cell* const cell, const Field& minefield, Settings& settings) {
 	GameStatus currentGameStatus = minefield.getGameStatus();
 	if(currentGameStatus == GameStatus::LOST) {
 		window::printInRectangle(color(character::INDICATOR_LOST, text::WHITE, background::RED), COORD{short(windowSize.X / 2), 1});
 		
 		//Print extra bad space to show which move lost the game
-		print(cell, minefield, true);
+		print(cell, minefield, settings, true);
 	}
 	else if(currentGameStatus == GameStatus::WON) {
 		window::printInRectangle(color(character::INDICATOR_WON, text::WHITE, background::GREEN), COORD{short(windowSize.X / 2), 1});
@@ -90,22 +129,7 @@ void checkForGameEnd(Cell* const cell, const Field& minefield) {
 }
 
 int main() {
-	SetConsoleTitle("Minesweeper: \"Graphical!\"");
-	
-	//Font settings
-	CONSOLE_FONT_INFOEX menuFont = {};
-	menuFont.cbSize=sizeof(CONSOLE_FONT_INFOEX);
-	wcscpy(menuFont.FaceName, L"MS Gothic");
-	menuFont.dwFontSize.X = 19;
-	menuFont.dwFontSize.Y = 36;
-	menuFont.FontWeight = 800;
-	
-	CONSOLE_FONT_INFOEX defaultGameFont = {};
-	defaultGameFont.cbSize=sizeof(CONSOLE_FONT_INFOEX);
-	wcscpy(defaultGameFont.FaceName, L"MS Gothic");
-	defaultGameFont.dwFontSize.X = 18;
-	defaultGameFont.dwFontSize.Y = 18;
-	defaultGameFont.FontWeight = 1000;
+	SetConsoleTitle("Minesweeper: \"Technicolor!\"");
 	
     //Set console code page to UTF-8
     SetConsoleOutputCP(CP_UTF8);
@@ -121,6 +145,9 @@ int main() {
 	//Set cursor size (full block character)
 	window::setCursorSize(100);
 	
+	//Load settings
+	Settings settings = Settings();
+	
 	while(1)
 	{
 		windowSize.X = 44;
@@ -132,7 +159,6 @@ int main() {
 		window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
 		
 		window::printInRectangle("Main Menu", COORD{1, 1});
-		window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
 		window::Table()
 				.atPosition(COORD{4, 3})
 				.addRow()
@@ -150,17 +176,20 @@ int main() {
 				.addRow()
 						.addCell("5")
 						.addCell("Controls")
-				// .addRow()
-						// .addCell("6")
-						// .addCell("High Scores")
+				.addRow()
+						.addCell("6")
+						.addCell("High Scores")
+				.addRow()
+						.addCell("7")
+						.addCell("Settings")
 				.print();
+		window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
 		
 		Difficulty difficulty;
-		CONSOLE_FONT_INFOEX gameFont = defaultGameFont;
 		
 		short menuChoice;
 		try {
-			menuChoice = window::getNumericInput(inputLocation, 1, inNumericRange(1, 5));
+			menuChoice = window::getNumericInput(inputLocation, 1, inNumericRange(1, 7));
 		} catch(window::UserExitException e) {
 			return 0;
 		}
@@ -201,37 +230,144 @@ int main() {
 					window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
 					
 					window::printInRectangle("Controls", COORD{1, 1});
-					window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
-					const int controlsKeyColor = text::DARK_BLUE;
 					const int controlsDescColor = text::DARK_GRAY;
 					window::Table()
 							.atPosition(COORD{4, 3})
 							.addRow()
-									.addCell(color("ARROW KEYS", controlsKeyColor), COORD{11, 1})
-									.addCell(color("Move cursor (hold ALT to    jump to screen edge)", controlsDescColor), COORD{27, 2})
+									.addCell("ARROW KEYS", COORD{12, 1})
+									.addCell("Move cursor (hold ALT to jump to screen edge)", COORD{27, 2})
 							.addRow()
-									.addCell(color("ENTER", controlsKeyColor))
-									.addCell(color("Reveal a space", controlsDescColor))
+									.addCell(color("ENTER", text::DARK_GRAY))
+									.addCell(color("Reveal a space", text::DARK_GRAY))
 							.addRow()
-									.addCell(color("SPACE BAR", controlsKeyColor))
-									.addCell(color("Flag a space", controlsDescColor))
+									.addCell("SPACE BAR")
+									.addCell("Flag a space")
 							.addRow()
-									.addCell(color("C", controlsKeyColor))
-									.addCell(color("Chord a number (reveal all  unflagged adjacent spaces)", controlsDescColor), COORD{27, 2})
+									.addCell(color("C", text::DARK_GRAY))
+									.addCell(color("Chord a number (reveal all unflagged adjacent spaces)", text::DARK_GRAY), COORD{27, 2})
 							.addRow()
-									.addCell(color("ESC", controlsKeyColor))
-									.addCell(color("Exit", controlsDescColor))
+									.addCell("ESC")
+									.addCell("Exit")
 							.print();
-					window::getNumericInput(inputLocation, 1, inNumericRange(1, -1));
-					break;
+					window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
+					window::printInRectangle("Press any key to exit...", inputLocation);
+					window::waitForUserInput();
 				}
-				case 6: {//settings
-					//TODO
-					break;
+				case 6: { //high scores
+					window::initialize(menuFont, windowSize);
+					window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
+					
+					window::printInRectangle("High Scores", COORD{1, 1});
+					const int hsCenterColor = text::GRAY;
+					const int hsEdgeColor = text::DARK_GRAY;
+
+					window::printInRectangle("WIP", COORD{inputLocation.X, short(inputLocation.Y-5)});
+					window::printInRectangle("FOR ILLUSTRATIVE PURPOSES ONLY", COORD{inputLocation.X, short(inputLocation.Y-4)});
+					
+					window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
+					window::printInRectangle("Press any key to exit...", inputLocation);
+					
+					while(1) {
+						window::printInRectangle(to_string(GetTickCount64()), COORD{inputLocation.X, short(inputLocation.Y - 3)});
+						window::waitForUserInput(1000);
+					}
 				}
-				case 7: {//high scores
-					//TODO
-					break;
+				case 7: { //settings
+					while(1) {
+						window::initialize(menuFont, windowSize);
+						window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
+						
+						window::printInRectangle("Settings", COORD{1, 1});
+						window::printInRectangle(color("Exit this screen (ESC) to save. To revert changes, close the app instead.", text::DARK_GRAY), COORD{1, 3}, COORD{42, 4});
+						window::Table()
+								.atPosition(COORD{4, 5})
+								.addRow()
+										.addCell("1", COORD{6, 1})
+										.addCell("Board Generation Rules")
+								.addRow()
+										.addCell("2")
+										.addCell("Cell Reveal Pattern")
+								.addRow()
+										.addCell("3")
+										.addCell("Player Username")
+								.print();
+						window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
+						
+						try {
+							menuChoice = window::getNumericInput(inputLocation, 1, inNumericRange(1, 3));
+						} catch(window::UserExitException e) {
+							break;
+						}
+						
+						try {
+							switch(menuChoice) {
+								case 1:
+									window::initialize(menuFont, windowSize);
+									window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
+									
+									window::printInRectangle("Board Generation Rules", COORD{1, 1});
+									window::printInRectangle(color("This controls how the board generates mines upon first move", text::DARK_GRAY), COORD{1, 3}, COORD{42, 4});
+									window::Table()
+											.atPosition(COORD{4, 5})
+											.addRow()
+													.addCell("1", COORD{6, 1})
+													.addCell("True random (can lose instantly)")
+											.addRow()
+													.addCell("2")
+													.addCell("First move no mine")
+											.addRow()
+													.addCell("3")
+													.addCell("First move no mine or number")
+											.addRow()
+													.addCell("4")
+													.addCell("Winnable with no blind guesses")
+											.print();
+									window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
+									
+									menuChoice = window::getNumericInput(inputLocation, 1, inNumericRange(1, 3), to_string(settings.getEvaluatorOrdinal()));
+									settings.setEvaluatorByOrdinal(menuChoice);
+									break;
+								case 2:
+									window::initialize(menuFont, windowSize);
+									window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
+									
+									window::printInRectangle("Cell Reveal Pattern", COORD{1, 1});
+									window::printInRectangle(color("This controls how the screen displays new cells being revealed. Generally only noticeable with very large board sizes.", text::DARK_GRAY), COORD{1, 3}, COORD{42, 6});
+									window::Table()
+											.atPosition(COORD{4, 6})
+											.addRow()
+													.addCell("1", COORD{6, 1})
+													.addCell("Fragmented")
+											.addRow()
+													.addCell("2")
+													.addCell("Random")
+											.addRow()
+													.addCell("3")
+													.addCell("Ordered")
+											.print();
+									window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
+									
+									menuChoice = window::getNumericInput(inputLocation, 1, inNumericRange(1, 3), to_string(settings.getContainerTypeOrdinal()));
+									settings.setContainerTypeByOrdinal(menuChoice);
+									break;
+								case 3:
+									window::initialize(menuFont, windowSize);
+									window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
+									
+									window::printInRectangle("Player Username", COORD{1, 1});
+									window::printInRectangle(color("This will be used automatically for any high scores achieved while it is set. Enter a blank value and save to return to the default behavior (ask on high score).", text::DARK_GRAY), COORD{1, 3}, COORD{42, 8});
+									window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
+									
+									string newName = window::getTextInput(inputLocation, 3, [](const string& input) { return true; }, settings.getPlayerName());
+									settings.setPlayerName(newName);
+									break;
+							}
+						} catch(window::UserExitException e) {
+							continue;
+						}
+					}
+					settings.save();
+					continue;
 				}
 			}
 		} catch(window::UserExitException e) {
@@ -252,7 +388,7 @@ int main() {
 				difficulty.dimensions,
 				difficulty.mines,
 				COORD{short((windowSize.X / 2) - (difficulty.dimensions.X / 2)), 3},
-				field::evaluators::safeStartPlusFunction
+				settings.getEvaluator()
 		);
 		
 		//Initialize cursor
@@ -278,6 +414,10 @@ int main() {
 			window::printInRectangle(color(character::BLANK, background::BLACK), COORD{1, 3}, COORD{short(min.X - 1), short(windowSize.Y - 2)}, true);
 			window::printInRectangle(color(character::BLANK, background::BLACK), COORD{short(max.X + 1), 3}, COORD{short(windowSize.X - 2), short(windowSize.Y - 2)}, true);
 		}
+		
+		//Initialize empty cell containers to hold the results of the user's actions, if any
+		vector<Cell*> resultVector;
+		unordered_set<Cell*> resultSet;
 		
 		bool exit = false;
 		short lastKnownTime = -1;
@@ -316,12 +456,14 @@ int main() {
 					continue;
 				}
 				
-				//Hide cursor
-				window::hideCursor();
+				//Clear result container
+				if(settings.getContainerType() == "fragmented") {
+					resultSet.clear();
+				}
+				else {
+					resultVector.clear();
+				}
 				
-				//Initialize empty cell set to hold the result of the action, if any
-				unordered_set<Cell*> resultSet;
-				unordered_set<Cell*>* const result = &resultSet;
 				Cell* resultingCell;
 				
 				//Handle input
@@ -358,30 +500,42 @@ int main() {
 								position.X++;
 						break;
 					case VK_RETURN:
-						resultingCell = minefield.revealSpace(position, result);
+						settings.getContainerType() == "fragmented"
+								? resultingCell = minefield.revealSpace(position, &resultSet)
+								: resultingCell = minefield.revealSpace(position, &resultVector);
 						break;
 					case VK_SPACE:
-						resultingCell = minefield.flagSpace(position, result);
+						settings.getContainerType() == "fragmented"
+								? resultingCell = minefield.flagSpace(position, &resultSet)
+								: resultingCell = minefield.flagSpace(position, &resultVector);
 						
 						//Display mine count
 						window::printInRectangle(color(getTextFromNumericField(minefield.getMineCount(), 4), text::RED), COORD{1, 1});
 						break;
 					case 'C':
-						resultingCell = minefield.chordSpace(position, result);
+						settings.getContainerType() == "fragmented"
+								? resultingCell = minefield.chordSpace(position, &resultSet)
+								: resultingCell = minefield.chordSpace(position, &resultVector);
 						break;
 				}
 				
 				//Print all new cells from the result of the operation
-				print(result, minefield);
+				if(settings.getContainerType() == "fragmented") {
+					print(&resultSet, minefield, settings);
+				}
+				else if(settings.getContainerType() == "random") {
+					shuffle(resultVector.begin(), resultVector.end(), randomizer);
+					print(&resultVector, minefield, settings);
+				}
+				else if(settings.getContainerType() == "ordered") {
+					print(&resultVector, minefield, settings);
+				}
 				
 				//Check for win/loss and display results
-				checkForGameEnd(resultingCell, minefield);
+				checkForGameEnd(resultingCell, minefield, settings);
 				
 				//Set cursor position in case it changed
 				SetConsoleCursorPosition(window::handleOut, position);
-				
-				//Show Cursor
-				window::showCursor();
 			}
 		} while(!exit);
 	}

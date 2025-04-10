@@ -6,6 +6,7 @@
 #include <random>
 #include <stdexcept>
 #include <time.h>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include <windows.h>
@@ -40,9 +41,29 @@ struct FlexibleString {
 	}
 	
 	FlexibleString& addText(const string& text) {
-		for(char c : text) {
-			addText(string(1, c), 1);
+		addText(text, text.length());
+		return *this;
+	}
+	
+	FlexibleString& addWordString(const string& wordString) {
+		string delimiter = " ";
+		size_t start = 0;
+		size_t end = wordString.find(delimiter);
+		
+		while(end != string::npos) {
+			addText(wordString.substr(start, end - start));
+			start = end + 1;
+			end = wordString.find(delimiter, start);
+			
+			if(start != end) {
+				addText(delimiter);
+			}
 		}
+		
+		if(start != end) {
+			addText(wordString.substr(start));
+		}
+		
 		return *this;
 	}
 	
@@ -97,18 +118,18 @@ namespace background { enum background {
 	WHITE = 107
 }; }
 
-FlexibleString color(const string& text, const int& colorCode) {
+FlexibleString color(const string& wordString, const int& colorCode) {
 	return FlexibleString()
 			.addText(ansiSequence(colorCode), 0)	//text style
-			.addText(text)
+			.addWordString(wordString)
 			.addText(ansiSequence(0), 0);			//default style
 }
 
-FlexibleString color(const string& text, const int& colorCodeText, const int& colorCodeBackground) {
+FlexibleString color(const string& wordString, const int& colorCodeText, const int& colorCodeBackground) {
 	return FlexibleString()
 			.addText(ansiSequence(colorCodeText), 0)		//text style
 			.addText(ansiSequence(colorCodeBackground), 0)	//background style (the order of the two actually doesn't matter, both styles will be applied)
-			.addText(text)
+			.addWordString(wordString)
 			.addText(ansiSequence(0), 0);					//default style
 }
 
@@ -132,7 +153,7 @@ bool isDigits(const string& input) {
 }
 
 const function<bool(const string&)> inNumericRange(const int& min, const int& max) {
-	return [min, max](const string& input) { return isDigits(input) && stoi(input) >= min && stoi(input) <= max; };
+	return [min, max](const string& input) { return input.length() > 0 && isDigits(input) && stoi(input) >= min && stoi(input) <= max; };
 }
 
 const string getTextFromNumericField(const int& field, const int& length) {
@@ -266,29 +287,33 @@ void printInRectangle(const FlexibleString& flexibleString, const COORD& beginPo
 	
 	do {
 		for(FlexibleStringComponent component : flexibleString.components) {
+			//If printing this component would reach out of bounds
+			if(cursor.X + component.length > endPosition.X + 1) {
+				//Update cursor to position on new line
+				cursor.Y++;
+				cursor.X = beginPosition.X;
+				
+				//Move screen cursor to print cursor
+				SetConsoleCursorPosition(handleOut, cursor);
+				
+				//Special case for when a line break coincides with a space (remove the space)
+				if(&component == &character::BLANK) {
+					continue;
+				}
+			}
+			
 			if(cursor.Y > endPosition.Y && component.length > 0) {
 				continue;
 			}
-			else {
-				cout << component.text;
-				cursor.X += component.length;
-				
-				//Check for end of line
-				if(cursor.X > endPosition.X) {
-					//Update cursor to new position
-					cursor.Y++;
-					cursor.X = beginPosition.X;
-					
-					//Move screen cursor to print cursor
-					SetConsoleCursorPosition(handleOut, cursor);
-				}
-			}
+			
+			cout << component.text;
+			cursor.X += component.length;
 		}
 	} while(fillAll && cursor.Y <= endPosition.Y);
 }
 
-void printInRectangle(const string& text, const COORD& beginPosition, const COORD& endPosition = COORD{SHRT_MAX, SHRT_MAX}, const bool& fillAll = false) {
-	printInRectangle(FlexibleString().addText(text), beginPosition, endPosition, fillAll);
+void printInRectangle(const string& wordString, const COORD& beginPosition, const COORD& endPosition = COORD{SHRT_MAX, SHRT_MAX}, const bool& fillAll = false) {
+	printInRectangle(FlexibleString().addWordString(wordString), beginPosition, endPosition, fillAll);
 }
 
 void printEdgeBorders(const COORD& windowSize, const int& colorCodeText, const int& colorCodeBackground, const int& numHorizontalSeparators = 0, ...) {
@@ -342,7 +367,7 @@ class Table {
 		}
 		
 		Table& addCell(const string& text, COORD cellSize = COORD{0, 1}) {
-			return addCell(FlexibleString().addText(text), cellSize);
+			return addCell(FlexibleString().addWordString(text), cellSize);
 		}
 		
 		Table& addCell(const FlexibleString& flexibleString, COORD cellSize = COORD{0, 1}) {
@@ -395,18 +420,19 @@ public:
 };
 
 /**
- * Attempt to get user input from the keyboard. Wait for RETURN key to be pressed to submit. If ESC key is pressed, return immediately. Entered characters must be graphical (non-control, non-whitespace) and optionally must meet a separately defined condition.
- * @param screenPosition is the starting position for the input field.
- * @param maxLength is the maximum allowable length for the input field. If user attempts to type more characters than this, subsequent inputs are discarded.
- * @param validate is a function that determines if the input is valid. User input will continue to be gathered until the submission meets validation criteria (or the user exits). Default value is unconditional pass; that is, perform no additional validation on the string.
- * @return a string containing the inputted characters.
+ * Attempt to get any user input from the keyboard. If any key is pressed, exit immediately with exception. If the timeout limit is reached, return normally.
  * @throws UserExitException if the user presses ESC key to exit
  */
-string getTextInput(const COORD& screenPosition, const short& maxLength, const function<bool(const string&)>& validate = [](const string& input) { return true; }) {
-	string result;
-	COORD cursorPosition = screenPosition;
-	while(1) {
-		SetConsoleCursorPosition(handleOut, cursorPosition);
+void waitForUserInput(ULONGLONG timeout = -10 - GetTickCount64()) {
+	ULONGLONG endTime = GetTickCount64() + timeout;
+	FlushConsoleInputBuffer(handleIn);
+	
+	while(GetTickCount64() < endTime) {
+		DWORD consoleEventCount;
+		GetNumberOfConsoleInputEvents(handleIn, &consoleEventCount);
+		if(consoleEventCount == 0) {
+			continue;
+		}
 		
 		DWORD cNumRead;
 		INPUT_RECORD inputBuffer[128];
@@ -419,14 +445,48 @@ string getTextInput(const COORD& screenPosition, const short& maxLength, const f
 		//For each input in the buffer...
 		for(int i = 0; i < cNumRead; i++)
 		{
-			if(inputBuffer[i].EventType == KEY_EVENT && inputBuffer[i].Event.KeyEvent.bKeyDown)
-			{
-				switch(inputBuffer[i].Event.KeyEvent.wVirtualKeyCode)
-				{
+			if(inputBuffer[i].EventType == KEY_EVENT && inputBuffer[i].Event.KeyEvent.bKeyDown) {
+				throw UserExitException();
+			}
+		}
+	}
+}
+
+/**
+ * Attempt to get user input from the keyboard. Wait for RETURN key to be pressed to submit. If ESC key is pressed, exit immediately. Entered characters must be graphical (non-control, non-whitespace) and optionally must meet a separately defined condition.
+ * @param screenPosition is the starting position for the input field.
+ * @param maxLength is the maximum allowable length for the input field. If user attempts to type more characters than this, subsequent inputs are discarded.
+ * @param validate is a function that determines if the input is valid. User input will continue to be gathered until the submission meets validation criteria (or the user exits). Default value is unconditional pass; that is, perform no additional validation on the string.
+ * @return a string containing the inputted characters.
+ * @throws UserExitException if the user presses ESC key to exit
+ */
+string getTextInput(
+		const COORD& screenPosition,
+		const short& maxLength,
+		const function<bool(const string&)>& validate = [](const string& input) { return true; },
+		const string& startingValue = "") {
+	string result = startingValue;
+	cout << startingValue;
+	COORD cursorPosition = COORD{short(screenPosition.X + startingValue.length()), screenPosition.Y};
+	while(1) {
+		SetConsoleCursorPosition(handleOut, cursorPosition);
+		
+		DWORD cNumRead;
+		INPUT_RECORD inputBuffer[128];
+		ReadConsoleInput( 
+			handleIn,		// input buffer handle
+			inputBuffer,	// buffer to read into
+			128,			// size of read buffer
+			&cNumRead);		// number of records read
+		
+		//For each input in the buffer...
+		for(int i = 0; i < cNumRead; i++) {
+			if(inputBuffer[i].EventType == KEY_EVENT && inputBuffer[i].Event.KeyEvent.bKeyDown) {
+				switch(inputBuffer[i].Event.KeyEvent.wVirtualKeyCode) {
 					case VK_ESCAPE:
 						throw UserExitException();
 					case VK_RETURN:
-						if(result.length() > 0 && validate(result)) {
+						if(validate(result)) {
 							return result;
 						}
 						else {
@@ -456,8 +516,12 @@ string getTextInput(const COORD& screenPosition, const short& maxLength, const f
 	}
 }
 
-int getNumericInput(const COORD& screenPosition, const short& maxLength, const function<bool(const string&)>& validate = [](const string& input) { return true; }) {
-	return stoi(getTextInput(screenPosition, maxLength, validate));
+int getNumericInput(
+		const COORD& screenPosition,
+		const short& maxLength,
+		const function<bool(const string&)>& validate = [](const string& input) { return true; },
+		const string& startingValue = "") {
+	return stoi(getTextInput(screenPosition, maxLength, validate, startingValue));
 }
 
 }
@@ -600,13 +664,19 @@ enum GameStatus {
 class Field;
 
 namespace evaluators {
-	
-	bool safeStart(const Field& field, const short& row, const short& col);
-	bool safeStartPlus(const Field& field, const short& row, const short& col);
-	
-	const function<bool(const Field& field, const short& row, const short& col)> safeStartFunction = safeStart;
-	const function<bool(const Field& field, const short& row, const short& col)> safeStartPlusFunction = safeStartPlus;
-	
+
+bool random(const Field& field, const short& row, const short& col);
+bool safeStart(const Field& field, const short& row, const short& col);
+bool safeStartPlus(const Field& field, const short& row, const short& col);
+bool noGuess(const Field& field, const short& row, const short& col);
+
+unordered_map<string, const function<bool(const Field& field, const short& row, const short& col)>> evaluator = {
+	{"random", random},
+	{"safeStart", safeStart},
+	{"safeStartPlus", safeStartPlus},
+	{"noGuess", noGuess}
+};
+
 }
 
 class Field {
@@ -616,7 +686,7 @@ class Field {
 		const short cols;					//number of columns
 		const int mines;					//number of mines
 		const COORD positionOffset;			//position of the board's top-left corner in the screen coordinate system
-		const function<bool(const Field& field, const short& row, const short& col)>* evaluate;
+		const function<bool(const Field& field, const short& row, const short& col)>* const evaluate;
 											//arbitrary function that determines if a field is valid to play, based on the state at initialization
 		
 		//updated thoughout the game
@@ -652,7 +722,6 @@ class Field {
 			uniform_int_distribution<> generateNumberInRangeUsing(0, numCells - 1);
 			
 			gameStatus = PLAYING;
-			startTime = GetTickCount64();
 			
 			do {
 				resetBoard();
@@ -664,14 +733,14 @@ class Field {
 					short candidateCol = index % cols;
 					
 					//Optimizations for some evaluators
-					if(evaluate == &field::evaluators::safeStartFunction || evaluate == &field::evaluators::safeStartPlusFunction) {
+					if(evaluate == &field::evaluators::evaluator["safeStart"] || evaluate == &field::evaluators::evaluator["safeStartPlus"]) {
 						if(mines < numCells
 								&& candidateRow == row
 								&& candidateCol == col) {
 							continue;
 						}
 						
-						if(evaluate == &field::evaluators::safeStartPlusFunction) {
+						if(evaluate == &field::evaluators::evaluator["safeStartPlus"]) {
 							short numRevealedCells = 0;
 							for(short rowModifier = -1; rowModifier <= 1; rowModifier++) {
 								for(short colModifier = -1; colModifier <= 1; colModifier++) {
@@ -745,7 +814,8 @@ class Field {
 			return result;
 		}
 		
-		void lose(unordered_set<Cell*>* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Cell*>>
+		void lose(ContainerType* const result = nullptr) {
 			gameStatus = LOST;
 			endTime = GetTickCount64();
 			
@@ -755,7 +825,7 @@ class Field {
 						Cell* cell = &cellObject;
 						if(cell->state == MINE || (cell->hidden && cell->flagged)) {
 							cell->hidden = false;
-							result->insert(cell);
+							result->insert(result->end(), cell);
 						}
 					}
 				}
@@ -772,14 +842,14 @@ class Field {
 				const COORD& desiredSize,
 				const int& desiredMines,
 				const COORD& desiredPosition,
-				const function<bool(const Field& field, const short& row, const short& col)>& desiredFieldEvaluator
+				const function<bool(const Field& field, const short& row, const short& col)>* const desiredFieldEvaluator
 		) :
 				rows(desiredSize.Y),
 				cols(desiredSize.X),
 				mines(desiredMines),
 				mineCount(desiredMines),
 				positionOffset(desiredPosition),
-				evaluate(&desiredFieldEvaluator)
+				evaluate(desiredFieldEvaluator)
 		{
 			remainingSpaces = rows * cols - mines;
 			resetBoard();
@@ -869,24 +939,27 @@ class Field {
 		 * @param result points to a set where pointers to newly flagged/unflagged cells will be placed.
 		 * @return the given cell.
 		 */
-		Cell* flagSpace(Cell* cell, unordered_set<Cell*>* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Cell*>>
+		Cell* flagSpace(Cell* cell, ContainerType* const result = nullptr) {
 			if(gameStatus == PLAYING) {
 				const short flagActionStatus = cell->toggleFlag();
 				mineCount -= flagActionStatus;
 				
 				if(result != nullptr && flagActionStatus != 0) {
-					result->insert(cell);
+					result->insert(result->end(), cell);
 				}
 			}
 			
 			return cell;
 		}
 		
-		Cell* flagSpace(const short& row, const short& col, unordered_set<Cell*>* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Cell*>>
+		Cell* flagSpace(const short& row, const short& col, ContainerType* const result = nullptr) {
 			return flagSpace(at(row, col), result);
 		}
 		
-		Cell* flagSpace(const COORD& screenPosition, unordered_set<Cell*>* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Cell*>>
+		Cell* flagSpace(const COORD& screenPosition, ContainerType* const result = nullptr) {
 			return flagSpace(at(screenPosition), result);
 		}
 		
@@ -896,7 +969,8 @@ class Field {
 		 * @param result points to a set where pointers to newly revealed cells will be placed.
 		 * @return the given cell.
 		 */
-		Cell* revealSpace(Cell* cell, unordered_set<Cell*>* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Cell*>>
+		Cell* revealSpace(Cell* cell, ContainerType* const result = nullptr) {
 			if(gameStatus == UNSTARTED) {
 				cell = init(cell->row, cell->col);
 			}
@@ -905,7 +979,7 @@ class Field {
 				const State cellState = cell->reveal();
 				
 				if(result != nullptr && cellState != FAIL) {
-					result->insert(cell);
+					result->insert(result->end(), cell);
 				}
 				
 				switch(cellState) {
@@ -930,11 +1004,13 @@ class Field {
 			return cell;
 		}
 		
-		Cell* revealSpace(const short& row, const short& col, unordered_set<Cell*>* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Cell*>>
+		Cell* revealSpace(const short& row, const short& col, ContainerType* const result = nullptr) {
 			return revealSpace(at(row, col), result);
 		}
 		
-		Cell* revealSpace(const COORD& screenPosition, unordered_set<Cell*>* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Cell*>>
+		Cell* revealSpace(const COORD& screenPosition, ContainerType* const result = nullptr) {
 			return revealSpace(at(screenPosition), result);
 		}
 		
@@ -944,7 +1020,8 @@ class Field {
 		 * @param result points to a set where pointers to newly revealed cells will be placed.
 		 * @return the given cell.
 		 */
-		Cell* chordSpace(Cell* cell, unordered_set<Cell*>* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Cell*>>
+		Cell* chordSpace(Cell* cell, ContainerType* const result = nullptr) {
 			if(gameStatus == PLAYING) {
 				const short number = cell->getNumber();
 				if(number) {
@@ -969,16 +1046,22 @@ class Field {
 			return cell;
 		}
 		
-		Cell* chordSpace(const short& row, const short& col, unordered_set<Cell*>* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Cell*>>
+		Cell* chordSpace(const short& row, const short& col, ContainerType* const result = nullptr) {
 			return chordSpace(at(row, col), result);
 		}
 		
-		Cell* chordSpace(const COORD& screenPosition, unordered_set<Cell*>* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Cell*>>
+		Cell* chordSpace(const COORD& screenPosition, ContainerType* const result = nullptr) {
 			return chordSpace(at(screenPosition), result);
 		}
 };
 
 namespace evaluators {
+
+bool random(const Field& field, const short& row, const short& col) {
+	return true;
+}
 
 bool safeStart(const Field& field, const short& row, const short& col) {
 	if(field.getMines() >= field.getRows() * field.getCols()) {
@@ -1010,6 +1093,11 @@ bool safeStartPlus(const Field& field, const short& row, const short& col) {
 	}
 	
 	return prospectiveField.getGameStatus() != LOST;
+}
+
+bool noGuess(const Field& field, const short& row, const short& col) {
+	//do some fancy algorithm stuff to solve the board
+	return true;
 }
 
 }
