@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <functional>
 #include <iostream>
+#include <limits.h>
 #include <random>
 #include <stdexcept>
 #include <time.h>
@@ -25,6 +26,33 @@ struct FlexibleStringComponent {
 	}
 };
 
+namespace stringUtils {
+	const string uppercase(const string& str) {
+		string temp = str;
+		for(auto& c : temp)
+			c = toupper(c);
+		return temp;
+	}
+}
+
+namespace character {
+	const string DELIMITER = ",";
+	const string DATA_END = ";";
+	const string KV_SEPARATOR = ":";
+	const string STRING_BLANK = " ";
+	const string STRING_MINE = "☼";
+	const string STRING_CLOCK = "⏱";
+	
+	const FlexibleStringComponent BORDER_CROSS = FlexibleStringComponent("╬", 1);
+	const FlexibleStringComponent BORDER_HORIZONTAL = FlexibleStringComponent("═", 1);
+	const FlexibleStringComponent BORDER_VERTICAL = FlexibleStringComponent("║", 1);
+	const FlexibleStringComponent BLANK = FlexibleStringComponent(STRING_BLANK, 1);
+	const FlexibleStringComponent FLAG = FlexibleStringComponent("ľ", 1);
+	const FlexibleStringComponent MINE = FlexibleStringComponent(STRING_MINE, 1);
+	const FlexibleStringComponent INDICATOR_WON = FlexibleStringComponent("☺", 1);
+	const FlexibleStringComponent INDICATOR_LOST = FlexibleStringComponent("☹", 1);
+}
+
 struct FlexibleString {
 	vector<FlexibleStringComponent> components = vector<FlexibleStringComponent>();
 	
@@ -46,7 +74,7 @@ struct FlexibleString {
 	}
 	
 	FlexibleString& addWordString(const string& wordString) {
-		string delimiter = " ";
+		string delimiter = character::STRING_BLANK;
 		size_t start = 0;
 		size_t end = wordString.find(delimiter);
 		
@@ -56,7 +84,7 @@ struct FlexibleString {
 			end = wordString.find(delimiter, start);
 			
 			if(start != end) {
-				addText(delimiter);
+				addComponent(character::BLANK);
 			}
 		}
 		
@@ -148,12 +176,24 @@ FlexibleString color(const FlexibleStringComponent& component, const int& colorC
 			.addText(ansiSequence(0), 0);					//default style
 }
 
-bool isDigits(const string& input) {
-	return all_of(input.begin(), input.end(), ::isdigit);
+const function<bool(const string&)> isNotBlank() {
+	return [](const string& input) { return input.length() > 0; };
 }
 
-const function<bool(const string&)> inNumericRange(const int& min, const int& max) {
-	return [min, max](const string& input) { return input.length() > 0 && isDigits(input) && stoi(input) >= min && stoi(input) <= max; };
+const function<bool(const string&)> isDigits() {
+	return [](const string& input) { return all_of(input.begin(), input.end(), ::isdigit); };
+}
+
+const function<bool(const string&)> isInNumericRange(const int& min, const int& max) {
+	return [min, max](const string& input) { return isNotBlank()(input) && isDigits()(input) && stoi(input) >= min && stoi(input) <= max; };
+}
+
+const function<bool(const string&)> isAlpha() {
+	return [](const string& input) { return all_of(input.begin(), input.end(), ::isalpha); };
+}
+
+const function<bool(const string&)> operator&&(const function<bool(const string&)> requirementA, const function<bool(const string&)> requirementB) {
+	return [requirementA, requirementB](const string& input) { return requirementA(input) && requirementB(input); };
 }
 
 const string getTextFromNumericField(const int& field, const int& length) {
@@ -161,17 +201,6 @@ const string getTextFromNumericField(const int& field, const int& length) {
 	const char* format = ("%0" + to_string(length) + "d").c_str();
 	sprintf(outputString, format, field);
 	return outputString;
-}
-
-namespace character {
-	const FlexibleStringComponent BORDER_CROSS = FlexibleStringComponent("╬", 1);
-	const FlexibleStringComponent BORDER_HORIZONTAL = FlexibleStringComponent("═", 1);
-	const FlexibleStringComponent BORDER_VERTICAL = FlexibleStringComponent("║", 1);
-	const FlexibleStringComponent BLANK = FlexibleStringComponent(" ", 1);
-	const FlexibleStringComponent FLAG = FlexibleStringComponent("ľ", 1);
-	const FlexibleStringComponent MINE = FlexibleStringComponent("☼", 1);
-	const FlexibleStringComponent INDICATOR_WON = FlexibleStringComponent("☺", 1);
-	const FlexibleStringComponent INDICATOR_LOST = FlexibleStringComponent("☹", 1);
 }
 
 namespace window {
@@ -297,7 +326,7 @@ void printInRectangle(const FlexibleString& flexibleString, const COORD& beginPo
 				SetConsoleCursorPosition(handleOut, cursor);
 				
 				//Special case for when a line break coincides with a space (remove the space)
-				if(&component == &character::BLANK) {
+				if(component.text == character::BLANK.text) {
 					continue;
 				}
 			}
@@ -355,21 +384,44 @@ class Table {
 		vector<short> rowHeights = vector<short>();
 		vector<vector<FlexibleString>> cells = vector<vector<FlexibleString>>();
 	public:
+		/**
+		 * Set the table's position on the screen
+		 */
 		Table& atPosition(const COORD& desiredPosition) {
 			position = desiredPosition;
 			return *this;
 		}
 		
+		/**
+		 * Add an empty row to the table. Subsequent new cells will be added to this row
+		 */
 		Table& addRow() {
 			cells.push_back(vector<FlexibleString>());
 			currentColumn = 0;
 			return *this;
 		}
 		
+		/**
+		 * Add a row to the table, adding and populating cells from the flexibleString's content. Subsequent new cells will be added to this row
+		 */
+		Table& addRow(const FlexibleString& flexibleString) {
+			addRow();
+			for(auto component : flexibleString.components) {
+				addCell(FlexibleString().addComponent(component));
+			}
+			return *this;
+		}
+		
+		/**
+		 * Add a cell to the current row using text. Words will be parsed by spaces and wrap to the next line inside the cell (non-breaking)
+		 */
 		Table& addCell(const string& text, COORD cellSize = COORD{0, 1}) {
 			return addCell(FlexibleString().addWordString(text), cellSize);
 		}
 		
+		/**
+		 * Add a cell to the current row using a Flexible String. Words will be parsed by the flexibleString's structure and wrap to the next line inside the cell (non-breaking)
+		 */
 		Table& addCell(const FlexibleString& flexibleString, COORD cellSize = COORD{0, 1}) {
 			if(cellSize.X == 0) {
 				cellSize = COORD{flexibleString.length(), cellSize.Y};
@@ -409,6 +461,33 @@ class Table {
 				currentPosition = COORD{position.X, short(currentPosition.Y + *rowHeight)};
 				rowHeight++;
 			}
+		}
+		
+		short getRowCount() const {
+			return rowHeights.size();
+		}
+		
+		short getColumnCount() const {
+			return columnWidths.size();
+		}
+		
+		Table subTable(short startRow, short endRow) {
+			Table subTable;
+			subTable.position = position;
+			subTable.columnWidths = columnWidths;
+			
+			if(startRow < 0) {
+				startRow = 0;
+			}
+			if(endRow > cells.size()) {
+				endRow = cells.size();
+			}
+			if(startRow < cells.size() && endRow >= 0 && startRow <= endRow) {
+				subTable.rowHeights = vector<short>(rowHeights.begin() + startRow, rowHeights.begin() + endRow);
+				subTable.cells = vector<vector<FlexibleString>>(cells.begin() + startRow, cells.begin() + endRow);
+			}
+			
+			return subTable;
 		}
 };
 

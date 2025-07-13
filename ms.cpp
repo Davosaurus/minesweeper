@@ -115,21 +115,45 @@ void print(ContainerType* const cells, const Field& minefield, Settings& setting
 	}
 }
 
-void checkForGameEnd(Cell* const cell, const Field& minefield, Settings& settings) {
+void checkForGameEnd(Cell* const cell, const Field& minefield, Settings& settings, bool& gameInProgress) {
 	GameStatus currentGameStatus = minefield.getGameStatus();
-	if(currentGameStatus == GameStatus::LOST) {
+	if(gameInProgress && currentGameStatus == GameStatus::LOST) {
+		gameInProgress = false;
+		
+		window::printEdgeBorders(windowSize, text::BLACK, background::RED, 1, 2);
 		window::printInRectangle(color(character::INDICATOR_LOST, text::WHITE, background::RED), COORD{short(windowSize.X / 2), 1});
 		
 		//Print extra bad space to show which move lost the game
 		print(cell, minefield, settings, true);
 	}
-	else if(currentGameStatus == GameStatus::WON) {
+	else if(gameInProgress && currentGameStatus == GameStatus::WON) {
+		gameInProgress = false;
+		
+		window::printEdgeBorders(windowSize, text::BLACK, background::GREEN, 1, 2);
 		window::printInRectangle(color(character::INDICATOR_WON, text::WHITE, background::GREEN), COORD{short(windowSize.X / 2), 1});
+		
+		string playerName = settings.getPlayerName();
+		auto addHighScoreResult = settings.addHighScore(minefield, playerName);
+		if(addHighScoreResult.second) {
+			window::printInRectangle(color("High Score!", text::WHITE, background::GREEN), COORD{0, 0});
+			window::printInRectangle(color("Name: ⎕⎕⎕", text::WHITE, background::GREEN), COORD{1, 2});
+
+			if(playerName == "") {
+				auto removeHighScoreResult = settings.removeHighScore(addHighScoreResult.first);
+				try {
+					settings.addHighScore(removeHighScoreResult, minefield, window::getTextInput(COORD{7, 2}, 3, isNotBlank() && isAlpha()));
+				} catch(window::UserExitException e) {
+					return;
+				}
+			}
+			
+			settings.save();
+		}
 	}
 }
 
 int main() {
-	SetConsoleTitle("Minesweeper: \"Technicolor!\"");
+	SetConsoleTitle("Minesweeper");
 	
     //Set console code page to UTF-8
     SetConsoleOutputCP(CP_UTF8);
@@ -189,7 +213,7 @@ int main() {
 		
 		short menuChoice;
 		try {
-			menuChoice = window::getNumericInput(inputLocation, 1, inNumericRange(1, 7));
+			menuChoice = window::getNumericInput(inputLocation, 1, isInNumericRange(1, 7));
 		} catch(window::UserExitException e) {
 			return 0;
 		}
@@ -210,18 +234,18 @@ int main() {
 					//Get user input for board dimensions
 					window::printInRectangle("Board width?", COORD{4, 3});
 					window::printInRectangle(">", COORD{24, 3});
-					short boardWidth = window::getNumericInput(COORD{25, 3}, 4, inNumericRange(1, 9999));
+					short boardWidth = window::getNumericInput(COORD{25, 3}, 4, isInNumericRange(1, 9999));
 					
 					window::printInRectangle("Board height?", COORD{4, 4});
 					window::printInRectangle(">", COORD{24, 4});
-					short boardHeight = window::getNumericInput(COORD{25, 4}, 4, inNumericRange(1, 9999));
+					short boardHeight = window::getNumericInput(COORD{25, 4}, 4, isInNumericRange(1, 9999));
 					
 					//Get user input for number of mines, and set the custom difficulty accordingly
 					window::printInRectangle("Number of mines?", COORD{4, 5});
 					window::printInRectangle(">", COORD{24, 5});
 					difficulty = Difficulty (
 							COORD{boardWidth, boardHeight},
-							window::getNumericInput(COORD{25, 5}, 8, inNumericRange(0, boardWidth * boardHeight))
+							window::getNumericInput(COORD{25, 5}, 8, isInNumericRange(0, boardWidth * boardHeight))
 					);
 					break;
 				}
@@ -255,21 +279,33 @@ int main() {
 				}
 				case 6: { //high scores
 					window::initialize(menuFont, windowSize);
+					window::hideCursor();
 					window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
 					
 					window::printInRectangle("High Scores", COORD{1, 1});
-					const int hsCenterColor = text::GRAY;
-					const int hsEdgeColor = text::DARK_GRAY;
-
-					window::printInRectangle("WIP", COORD{inputLocation.X, short(inputLocation.Y-5)});
-					window::printInRectangle("FOR ILLUSTRATIVE PURPOSES ONLY", COORD{inputLocation.X, short(inputLocation.Y-4)});
 					
 					window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
 					window::printInRectangle("Press any key to exit...", inputLocation);
 					
+					window::Table highScoreTable = window::Table()
+						.atPosition(COORD{4, 3});
+					
+					for(HighScore highScore : settings.getHighScores()) {
+						highScoreTable.addRow(highScore.getDisplayString(windowSize.X - 8));
+					}
+					
+					short offset = -6;
 					while(1) {
-						window::printInRectangle(to_string(GetTickCount64()), COORD{inputLocation.X, short(inputLocation.Y - 3)});
-						window::waitForUserInput(1000);
+						window::printInRectangle(character::STRING_BLANK, COORD{4, 3}, COORD{short(windowSize.X - 4), short(inputLocation.Y - 2)}, true);
+						highScoreTable
+								.subTable(offset, offset + 7)
+								.atPosition(COORD{4, short(3 - (offset < 0 ? offset : 0))})
+								.print();
+						window::waitForUserInput(2000);
+						offset++;
+						if(offset >= highScoreTable.getRowCount()) {
+							offset = -6;
+						}
 					}
 				}
 				case 7: { //settings
@@ -278,7 +314,7 @@ int main() {
 						window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
 						
 						window::printInRectangle("Settings", COORD{1, 1});
-						window::printInRectangle(color("Exit this screen (ESC) to save. To revert changes, close the app instead.", text::DARK_GRAY), COORD{1, 3}, COORD{42, 4});
+						window::printInRectangle(color("To save changes, exit to main menu (ESC). To revert changes, close the app instead.", text::DARK_GRAY), COORD{1, 3}, COORD{42, 4});
 						window::Table()
 								.atPosition(COORD{4, 5})
 								.addRow()
@@ -289,12 +325,15 @@ int main() {
 										.addCell("Cell Reveal Pattern")
 								.addRow()
 										.addCell("3")
+										.addCell("Pixel Display Threshold")
+								.addRow()
+										.addCell("4")
 										.addCell("Player Username")
 								.print();
 						window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
 						
 						try {
-							menuChoice = window::getNumericInput(inputLocation, 1, inNumericRange(1, 3));
+							menuChoice = window::getNumericInput(inputLocation, 1, isInNumericRange(1, 4));
 						} catch(window::UserExitException e) {
 							break;
 						}
@@ -318,13 +357,13 @@ int main() {
 											.addRow()
 													.addCell("3")
 													.addCell("First move no mine or number")
-											.addRow()
-													.addCell("4")
-													.addCell("Winnable with no blind guesses")
+											// .addRow()
+													// .addCell("4")
+													// .addCell("Winnable with no blind guesses")
 											.print();
 									window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
 									
-									menuChoice = window::getNumericInput(inputLocation, 1, inNumericRange(1, 3), to_string(settings.getEvaluatorOrdinal()));
+									menuChoice = window::getNumericInput(inputLocation, 1, isInNumericRange(1, 3), to_string(settings.getEvaluatorOrdinal()));
 									settings.setEvaluatorByOrdinal(menuChoice);
 									break;
 								case 2:
@@ -332,7 +371,7 @@ int main() {
 									window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
 									
 									window::printInRectangle("Cell Reveal Pattern", COORD{1, 1});
-									window::printInRectangle(color("This controls how the screen displays new cells being revealed. Generally only noticeable with very large board sizes.", text::DARK_GRAY), COORD{1, 3}, COORD{42, 6});
+									window::printInRectangle(color("This controls how the screen displays new cells being revealed. Generally only noticeable with VERY large board sizes.", text::DARK_GRAY), COORD{1, 3}, COORD{42, 6});
 									window::Table()
 											.atPosition(COORD{4, 6})
 											.addRow()
@@ -343,22 +382,34 @@ int main() {
 													.addCell("Random")
 											.addRow()
 													.addCell("3")
-													.addCell("Ordered")
+													.addCell("Ordered (fastest)")
 											.print();
 									window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
 									
-									menuChoice = window::getNumericInput(inputLocation, 1, inNumericRange(1, 3), to_string(settings.getContainerTypeOrdinal()));
+									menuChoice = window::getNumericInput(inputLocation, 1, isInNumericRange(1, 3), to_string(settings.getContainerTypeOrdinal()));
 									settings.setContainerTypeByOrdinal(menuChoice);
 									break;
 								case 3:
 									window::initialize(menuFont, windowSize);
 									window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
 									
-									window::printInRectangle("Player Username", COORD{1, 1});
-									window::printInRectangle(color("This will be used automatically for any high scores achieved while it is set. Enter a blank value and save to return to the default behavior (ask on high score).", text::DARK_GRAY), COORD{1, 3}, COORD{42, 8});
+									window::printInRectangle("Pixel Display Threshold", COORD{1, 1});
+									window::printInRectangle(color("Cells will be rendered in solid colors when the size in pixels is below this value. This allows play with enormous board sizes that would otherwise be limited by illegible text. Advanced players can use this option to play by color.", text::DARK_GRAY), COORD{1, 3}, COORD{42, 9});
 									window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
 									
-									string newName = window::getTextInput(inputLocation, 3, [](const string& input) { return true; }, settings.getPlayerName());
+									menuChoice = window::getNumericInput(inputLocation, 4, isInNumericRange(1, 9999), to_string(settings.getPixelDisplayThreshold()));
+									settings.setPixelDisplayThreshold(menuChoice);
+									break;
+								//TODO: colors???
+								case 4:
+									window::initialize(menuFont, windowSize);
+									window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
+									
+									window::printInRectangle("Player Username", COORD{1, 1});
+									window::printInRectangle(color("This (alphabetic) value will be used automatically for any high scores achieved while it is set. Enter a blank value and save to return to the default behavior (ask when high score is achieved).", text::DARK_GRAY), COORD{1, 3}, COORD{42, 8});
+									window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
+									
+									string newName = window::getTextInput(inputLocation, 3, isAlpha(), settings.getPlayerName());
 									settings.setPlayerName(newName);
 									break;
 							}
@@ -418,6 +469,9 @@ int main() {
 		//Initialize empty cell containers to hold the results of the user's actions, if any
 		vector<Cell*> resultVector;
 		unordered_set<Cell*> resultSet;
+		
+		//Flag to ensure end of game is only checked once
+		bool gameInProgress = true;
 		
 		bool exit = false;
 		short lastKnownTime = -1;
@@ -532,7 +586,7 @@ int main() {
 				}
 				
 				//Check for win/loss and display results
-				checkForGameEnd(resultingCell, minefield, settings);
+				checkForGameEnd(resultingCell, minefield, settings, gameInProgress);
 				
 				//Set cursor position in case it changed
 				SetConsoleCursorPosition(window::handleOut, position);
