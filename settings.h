@@ -13,7 +13,7 @@ class HighScore {
 		ULONGLONG elapsedTime;
 		string playerName;
 		
-		HighScore(const Field& game, const string& desiredPlayerName) {
+		HighScore(const Minefield& game, const string& desiredPlayerName) {
 			cols = game.getCols();
 			rows = game.getRows();
 			mines = game.getMines();
@@ -191,7 +191,7 @@ class Settings {
 			saveFile.close();
 		}
 		
-		const function<bool(const Field& field, const short& row, const short& col)>* getEvaluator() {
+		const function<bool(const Minefield& field, const short& row, const short& col)>* getEvaluator() {
 			return &field::evaluators::evaluator[settings["evaluator"]];
 		}
 		
@@ -235,7 +235,7 @@ class Settings {
 			return highScores;
 		}
 		
-		const pair<set<HighScore, HighScoreComparator>::iterator, bool> addHighScore(const Field& game, const string& desiredPlayerName) {
+		const pair<set<HighScore, HighScoreComparator>::iterator, bool> addHighScore(const Minefield& game, const string& desiredPlayerName) {
 			HighScore newHighScore = HighScore(game, desiredPlayerName);
 			auto insertAttemptResult = highScores.insert(newHighScore);
 			if(insertAttemptResult.second) { //No equivalent entry exists
@@ -252,7 +252,7 @@ class Settings {
 			}
 		}
 		
-		void addHighScore(const set<HighScore, HighScoreComparator>::iterator& hint, const Field& game, const string& desiredPlayerName) {
+		void addHighScore(const set<HighScore, HighScoreComparator>::iterator& hint, const Minefield& game, const string& desiredPlayerName) {
 			highScores.insert(hint, HighScore(game, desiredPlayerName));
 		}
 		

@@ -63,7 +63,7 @@ background::background numberColorsBackgrounds[9] = {
 /**
  * Print the given cell to the screen
  */
-void print(Cell* const cell, const Field& minefield, Settings& settings, const bool& losingMove = false) {
+void print(Cell* const cell, const Minefield& minefield, Settings& settings, const bool& losingMove = false) {
 	FlexibleString output;
 	
 	switch(cell->getState()) {
@@ -109,13 +109,13 @@ void print(Cell* const cell, const Field& minefield, Settings& settings, const b
  * Print all the given cells to the screen
  */
 template<typename ContainerType>
-void print(ContainerType* const cells, const Field& minefield, Settings& settings) {
+void print(ContainerType* const cells, const Minefield& minefield, Settings& settings) {
 	for(Cell* cell : *cells) {
 		print(cell, minefield, settings);
 	}
 }
 
-void checkForGameEnd(Cell* const cell, const Field& minefield, Settings& settings, bool& gameInProgress) {
+void checkForGameEnd(Cell* const cell, const Minefield& minefield, Settings& settings, bool& gameInProgress) {
 	GameStatus currentGameStatus = minefield.getGameStatus();
 	if(gameInProgress && currentGameStatus == GameStatus::LOST) {
 		gameInProgress = false;
@@ -136,9 +136,9 @@ void checkForGameEnd(Cell* const cell, const Field& minefield, Settings& setting
 		auto addHighScoreResult = settings.addHighScore(minefield, playerName);
 		if(addHighScoreResult.second) {
 			window::printInRectangle(color("High Score!", text::WHITE, background::GREEN), COORD{0, 0});
-			window::printInRectangle(color("Name: ⎕⎕⎕", text::WHITE, background::GREEN), COORD{1, 2});
 
 			if(playerName == "") {
+				window::printInRectangle(color("Name: ⎕⎕⎕", text::WHITE, background::GREEN), COORD{1, 2});
 				auto removeHighScoreResult = settings.removeHighScore(addHighScoreResult.first);
 				try {
 					settings.addHighScore(removeHighScoreResult, minefield, window::getTextInput(COORD{7, 2}, 3, isNotBlank() && isAlpha()));
@@ -400,7 +400,6 @@ int main() {
 									menuChoice = window::getNumericInput(inputLocation, 4, isInNumericRange(1, 9999), to_string(settings.getPixelDisplayThreshold()));
 									settings.setPixelDisplayThreshold(menuChoice);
 									break;
-								//TODO: colors???
 								case 4:
 									window::initialize(menuFont, windowSize);
 									window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
@@ -435,7 +434,7 @@ int main() {
 		window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 1, 2);
 		
 		//Create the minefield
-		Field minefield (
+		Minefield minefield (
 				difficulty.dimensions,
 				difficulty.mines,
 				COORD{short((windowSize.X / 2) - (difficulty.dimensions.X / 2)), 3},

@@ -616,7 +616,7 @@ enum State {
 };
 
 class Cell {
-	friend class Field;
+	friend class Minefield;
 	private:
 		bool hidden = true;
 		bool flagged = false;
@@ -741,15 +741,16 @@ enum GameStatus {
 };
 
 class Field;
+class Minefield;
 
 namespace evaluators {
 
-bool random(const Field& field, const short& row, const short& col);
-bool safeStart(const Field& field, const short& row, const short& col);
-bool safeStartPlus(const Field& field, const short& row, const short& col);
-bool noGuess(const Field& field, const short& row, const short& col);
+bool random(const Minefield& field, const short& row, const short& col);
+bool safeStart(const Minefield& field, const short& row, const short& col);
+bool safeStartPlus(const Minefield& field, const short& row, const short& col);
+bool noGuess(const Minefield& field, const short& row, const short& col);
 
-unordered_map<string, const function<bool(const Field& field, const short& row, const short& col)>> evaluator = {
+unordered_map<string, const function<bool(const Minefield& field, const short& row, const short& col)>> evaluator = {
 	{"random", random},
 	{"safeStart", safeStart},
 	{"safeStartPlus", safeStartPlus},
@@ -759,13 +760,64 @@ unordered_map<string, const function<bool(const Field& field, const short& row, 
 }
 
 class Field {
-	private:
-		//set at construction
+	protected:
 		const short rows;					//number of rows
 		const short cols;					//number of columns
+		vector<vector<Cell>> cells;			//holds all cells
+		
+		Cell* at(const short& row, const short& col) {
+			return &cells.at(row).at(col);
+		}
+		
+		unordered_set<Cell*> getAdjacentCells(Cell* cell) {
+			unordered_set<Cell*> result;
+			for(short rowModifier = -1; rowModifier <= 1; rowModifier++) {
+				for(short colModifier = -1; colModifier <= 1; colModifier++) {
+					const short row = cell->row + rowModifier;
+					const short col = cell->col + colModifier;
+					if(!(row == cell->row && col == cell->col)	//coordinates are not the same as the original space
+						&& isValidSpace(row, col)) {			//coordinates requested are within field bounds
+						result.insert(at(row, col));
+					}
+				}
+			}
+			return result;
+		}
+	
+	public:
+		Field(const short& desiredRows, const short& desiredCols)
+				: rows(desiredRows), cols(desiredCols) {}
+		
+		/**
+		 * @return number of rows.
+		 */
+		const short getRows() const {
+			return rows;
+		}
+		
+		/**
+		 * @return number of cols.
+		 */
+		const short getCols() const {
+			return cols;
+		}
+		
+		/**
+		 * @return whether the given row and column refer to a space within the bounds of the field.
+		 */
+		const bool isValidSpace(const short& row, const short& col) const {
+			return row >= 0 && row < rows
+				&& col >= 0 && col < cols;
+		}
+};
+
+class Minefield final : public Field {
+	private:
+		using Field::at;
+		//set at construction
 		const int mines;					//number of mines
 		const COORD positionOffset;			//position of the board's top-left corner in the screen coordinate system
-		const function<bool(const Field& field, const short& row, const short& col)>* const evaluate;
+		const function<bool(const Minefield& field, const short& row, const short& col)>* const evaluate;
 											//arbitrary function that determines if a field is valid to play, based on the state at initialization
 		
 		//updated thoughout the game
@@ -774,7 +826,6 @@ class Field {
 		int mineCount;						//number of mines minus the number of placed flags
 		ULONGLONG startTime;				//system time when the game was started
 		ULONGLONG endTime;					//system time when the game was completed
-		vector<vector<Cell>> cells;			//holds all cells
 		
 		/**
 		 * Reset the field by reinitializing the cells vector with newly created cells (uninitialized state)
@@ -812,14 +863,15 @@ class Field {
 					short candidateCol = index % cols;
 					
 					//Optimizations for some evaluators
-					if(evaluate == &field::evaluators::evaluator["safeStart"] || evaluate == &field::evaluators::evaluator["safeStartPlus"]) {
+					if(evaluate != &field::evaluators::evaluator["random"]) {
 						if(mines < numCells
 								&& candidateRow == row
 								&& candidateCol == col) {
 							continue;
 						}
 						
-						if(evaluate == &field::evaluators::evaluator["safeStartPlus"]) {
+						if(evaluate == &field::evaluators::evaluator["safeStartPlus"]
+								|| evaluate == &field::evaluators::evaluator["noGuess"]) {
 							short numRevealedCells = 0;
 							for(short rowModifier = -1; rowModifier <= 1; rowModifier++) {
 								for(short colModifier = -1; colModifier <= 1; colModifier++) {
@@ -868,29 +920,10 @@ class Field {
 			col = screenPosition.X - positionOffset.X;
 		}
 		
-		Cell* at(const short& row, const short& col) {
-			return &cells.at(row).at(col);
-		}
-		
 		Cell* at(const COORD& screenPosition) {
 			short row, col;
 			getFieldCoordinatesFromScreenCoord(screenPosition, row, col);
 			return at(row, col);
-		}
-		
-		unordered_set<Cell*> getAdjacentCells(Cell* cell) {
-			unordered_set<Cell*> result;
-			for(short rowModifier = -1; rowModifier <= 1; rowModifier++) {
-				for(short colModifier = -1; colModifier <= 1; colModifier++) {
-					const short row = cell->row + rowModifier;
-					const short col = cell->col + colModifier;
-					if(!(row == cell->row && col == cell->col)	//coordinates are not the same as the original space
-						&& isValidSpace(row, col)) {			//coordinates requested are within field bounds
-						result.insert(at(row, col));
-					}
-				}
-			}
-			return result;
 		}
 		
 		template<typename ContainerType = unordered_set<Cell*>>
@@ -917,14 +950,13 @@ class Field {
 		}
 	
 	public:
-		Field(
+		Minefield(
 				const COORD& desiredSize,
 				const int& desiredMines,
 				const COORD& desiredPosition,
-				const function<bool(const Field& field, const short& row, const short& col)>* const desiredFieldEvaluator
+				const function<bool(const Minefield& field, const short& row, const short& col)>* const desiredFieldEvaluator
 		) :
-				rows(desiredSize.Y),
-				cols(desiredSize.X),
+				Field(desiredSize.Y, desiredSize.X),
 				mines(desiredMines),
 				mineCount(desiredMines),
 				positionOffset(desiredPosition),
@@ -949,32 +981,10 @@ class Field {
 		}
 		
 		/**
-		 * @return number of rows.
-		 */
-		const short getRows() const {
-			return rows;
-		}
-		
-		/**
-		 * @return number of cols.
-		 */
-		const short getCols() const {
-			return cols;
-		}
-		
-		/**
 		 * @return a coordinate that holds the position of the given cell, in the screen coordinate system.
 		 */
 		const COORD getPositionOf(Cell* cell) const {
 			return COORD{short(cell->col + positionOffset.X), short(cell->row + positionOffset.Y)};
-		}
-		
-		/**
-		 * @return whether the given row and column refer to a space within the bounds of the field.
-		 */
-		const bool isValidSpace(const short& row, const short& col) const {
-			return row >= 0 && row < rows
-				&& col >= 0 && col < cols;
 		}
 		
 		/**
@@ -1138,25 +1148,25 @@ class Field {
 
 namespace evaluators {
 
-bool random(const Field& field, const short& row, const short& col) {
+bool random(const Minefield& field, const short& row, const short& col) {
 	return true;
 }
 
-bool safeStart(const Field& field, const short& row, const short& col) {
+bool safeStart(const Minefield& field, const short& row, const short& col) {
 	if(field.getMines() >= field.getRows() * field.getCols()) {
 		return true;
 	}
 	
-	Field prospectiveField = Field(field);
+	Minefield prospectiveField = Minefield(field);
 	prospectiveField.revealSpace(row, col);
 	return prospectiveField.getGameStatus() != LOST;
 }
 
-bool safeStartPlus(const Field& field, const short& row, const short& col) {
+bool safeStartPlus(const Minefield& field, const short& row, const short& col) {
 	int numCells = field.getRows() * field.getCols();
 	int numRevealedCells = 0;
 	
-	Field prospectiveField = Field(field);
+	Minefield prospectiveField = Minefield(field);
 	
 	for(short rowModifier = -1; rowModifier <= 1; rowModifier++) {
 		for(short colModifier = -1; colModifier <= 1; colModifier++) {
@@ -1174,7 +1184,7 @@ bool safeStartPlus(const Field& field, const short& row, const short& col) {
 	return prospectiveField.getGameStatus() != LOST;
 }
 
-bool noGuess(const Field& field, const short& row, const short& col) {
+bool noGuess(const Minefield& field, const short& row, const short& col) {
 	//do some fancy algorithm stuff to solve the board
 	return true;
 }
