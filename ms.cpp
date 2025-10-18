@@ -63,7 +63,7 @@ background::background numberColorsBackgrounds[9] = {
 /**
  * Print the given cell to the screen
  */
-void print(Cell* const cell, const Minefield& minefield, Settings& settings, const bool& losingMove = false) {
+void print(Minecell* const cell, const Minefield& minefield, Settings& settings, const bool& losingMove = false) {
 	FlexibleString output;
 	
 	switch(cell->getState()) {
@@ -110,12 +110,12 @@ void print(Cell* const cell, const Minefield& minefield, Settings& settings, con
  */
 template<typename ContainerType>
 void print(ContainerType* const cells, const Minefield& minefield, Settings& settings) {
-	for(Cell* cell : *cells) {
+	for(Minecell* cell : *cells) {
 		print(cell, minefield, settings);
 	}
 }
 
-void checkForGameEnd(Cell* const cell, const Minefield& minefield, Settings& settings, bool& gameInProgress) {
+void checkForGameEnd(Minecell* const cell, const Minefield& minefield, Settings& settings, bool& gameInProgress) {
 	GameStatus currentGameStatus = minefield.getGameStatus();
 	if(gameInProgress && currentGameStatus == GameStatus::LOST) {
 		gameInProgress = false;
@@ -466,8 +466,8 @@ int main() {
 		}
 		
 		//Initialize empty cell containers to hold the results of the user's actions, if any
-		vector<Cell*> resultVector;
-		unordered_set<Cell*> resultSet;
+		vector<Minecell*> resultVector;
+		unordered_set<Minecell*> resultSet;
 		
 		//Flag to ensure end of game is only checked once
 		bool gameInProgress = true;
@@ -517,7 +517,7 @@ int main() {
 					resultVector.clear();
 				}
 				
-				Cell* resultingCell;
+				Minecell* resultingCell;
 				
 				//Handle input
 				switch(keyEvent.wVirtualKeyCode) {

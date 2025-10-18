@@ -1,1 +1,1 @@
-compile.bat -Og -g -Wall -D_GLIBCXX_DEBUG
+compile.bat -O0 -g -Wall -D_GLIBCXX_DEBUG -fno-inline

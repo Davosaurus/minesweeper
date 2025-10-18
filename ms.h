@@ -616,6 +616,18 @@ enum State {
 };
 
 class Cell {
+	protected:
+		Cell(	const short& desiredRow,
+				const short& desiredCol
+		) :		row(desiredRow),
+				col(desiredCol) {}
+	
+	public:
+		const short row;
+		const short col;
+};
+
+class Minecell final : public Cell {
 	friend class Minefield;
 	private:
 		bool hidden = true;
@@ -623,10 +635,9 @@ class Cell {
 		State state;
 		short number;
 	
-		Cell(	const short& desiredRow,
-				const short& desiredCol
-		) :		row(desiredRow),
-				col(desiredCol),
+		Minecell(	const short& desiredRow,
+					const short& desiredCol
+		) :		Cell(desiredRow, desiredCol),
 				state(UNINITIALIZED) {}
 		
 		/**
@@ -695,9 +706,6 @@ class Cell {
 		}
 	
 	public:
-		const short row;
-		const short col;
-		
 		/**
 		 * Attempt to get the cell's state
 		 * @return the state, if it is public knowledge. Else, return FAIL State to indicate that the requested information is not available.
@@ -740,36 +748,17 @@ enum GameStatus {
 	LOST
 };
 
-class Field;
-class Minefield;
-
-namespace evaluators {
-
-bool random(const Minefield& field, const short& row, const short& col);
-bool safeStart(const Minefield& field, const short& row, const short& col);
-bool safeStartPlus(const Minefield& field, const short& row, const short& col);
-bool noGuess(const Minefield& field, const short& row, const short& col);
-
-unordered_map<string, const function<bool(const Minefield& field, const short& row, const short& col)>> evaluator = {
-	{"random", random},
-	{"safeStart", safeStart},
-	{"safeStartPlus", safeStartPlus},
-	{"noGuess", noGuess}
-};
-
-}
-
 class Field {
 	protected:
 		const short rows;					//number of rows
 		const short cols;					//number of columns
-		vector<vector<Cell>> cells;			//holds all cells
+		vector<vector<Cell*>> cells;		//holds pointers to all cells
 		
-		Cell* at(const short& row, const short& col) {
-			return &cells.at(row).at(col);
+		Cell* at(const short& row, const short& col) const {
+			return cells.at(row).at(col);
 		}
 		
-		unordered_set<Cell*> getAdjacentCells(Cell* cell) {
+		unordered_set<Cell*> getAdjacentCells(Cell* cell) const {
 			unordered_set<Cell*> result;
 			for(short rowModifier = -1; rowModifier <= 1; rowModifier++) {
 				for(short colModifier = -1; colModifier <= 1; colModifier++) {
@@ -779,6 +768,16 @@ class Field {
 						&& isValidSpace(row, col)) {			//coordinates requested are within field bounds
 						result.insert(at(row, col));
 					}
+				}
+			}
+			return result;
+		}
+		
+		unordered_set<Cell*> getAllCells() const {
+			unordered_set<Cell*> result;
+			for(const vector<Cell*>& row : cells) {
+				for(Cell* cell : row) {
+					result.insert(cell);
 				}
 			}
 			return result;
@@ -809,11 +808,37 @@ class Field {
 			return row >= 0 && row < rows
 				&& col >= 0 && col < cols;
 		}
+		
+		virtual ~Field() {
+			for(vector<Cell*>& row : cells) {
+				for(Cell* cell_ptr : row) {
+					delete cell_ptr;
+				}
+			}
+			cells.clear();
+		}
 };
+
+class Minefield;
+
+namespace evaluators {
+
+bool random(const Minefield& field, const short& row, const short& col);
+bool safeStart(const Minefield& field, const short& row, const short& col);
+bool safeStartPlus(const Minefield& field, const short& row, const short& col);
+bool noGuess(const Minefield& field, const short& row, const short& col);
+
+unordered_map<string, const function<bool(const Minefield& field, const short& row, const short& col)>> evaluator = {
+	{"random", random},
+	{"safeStart", safeStart},
+	{"safeStartPlus", safeStartPlus},
+	{"noGuess", noGuess}
+};
+
+}
 
 class Minefield final : public Field {
 	private:
-		using Field::at;
 		//set at construction
 		const int mines;					//number of mines
 		const COORD positionOffset;			//position of the board's top-left corner in the screen coordinate system
@@ -831,13 +856,33 @@ class Minefield final : public Field {
 		 * Reset the field by reinitializing the cells vector with newly created cells (uninitialized state)
 		 */
 		void resetBoard() {
-			cells = vector<vector<Cell>>();
+			cells = vector<vector<Cell*>>();
 			for(short row = 0; row < rows; row++) {
-				cells.push_back(vector<Cell>());
+				cells.push_back(vector<Cell*>());
 				for(short col = 0; col < cols; col++) {
-					cells.at(row).push_back(Cell(row, col));
+					cells.at(row).push_back(new Minecell(row, col));
 				}
 			}
+		}
+		
+		Minecell* at(const short& row, const short& col) const {
+			return static_cast<Minecell*>(Field::at(row, col));
+		}
+		
+		unordered_set<Minecell*> getAdjacentCells(Minecell* cell) const {
+			unordered_set<Minecell*> result;
+			for(auto& baseCell : Field::getAdjacentCells(cell)) {
+				result.insert(static_cast<Minecell*>(baseCell));
+			}
+			return result;
+		}
+		
+		unordered_set<Minecell*> getAllCells() const {
+			unordered_set<Minecell*> result;
+			for(auto& baseCell : Field::getAllCells()) {
+				result.insert(static_cast<Minecell*>(baseCell));
+			}
+			return result;
 		}
 		
 		/**
@@ -846,7 +891,7 @@ class Minefield final : public Field {
 		 * @param col is the column of the cell about to be revealed.
 		 * @return a pointer to the cell about to be revealed.
 		 */
-		Cell* init(const short row, const short col) {
+		Minecell* init(const short row, const short col) {
 			int numCells = rows * cols;
 			//Construct a distribution which, when given a randomizer, can produce a number that refers to a unique cell in the field space
 			uniform_int_distribution<> generateNumberInRangeUsing(0, numCells - 1);
@@ -889,25 +934,23 @@ class Minefield final : public Field {
 						}
 					}
 					
-					Cell* candidate = at(candidateRow, candidateCol);
+					Minecell* candidate = at(candidateRow, candidateCol);
 					if(candidate->init(MINE)) {
 						numberOfMinesPlaced++;
 					}
 				}
 				
 				//Generate adjacent numbers
-				for(vector<Cell>& row : cells) {
-					for(Cell& cell : row) {
-						short sumOfNeighboringMines = 0;
-						unordered_set<Cell*> neighbors = getAdjacentCells(&cell);
-						for(Cell* neighbor : neighbors) {
-							if(neighbor->state == MINE) {
-								sumOfNeighboringMines++;
-							}
+				for(Minecell* cell : getAllCells()) {
+					short sumOfNeighboringMines = 0;
+					unordered_set<Minecell*> neighbors = getAdjacentCells(cell);
+					for(Minecell* neighbor : neighbors) {
+						if(neighbor->state == MINE) {
+							sumOfNeighboringMines++;
 						}
-						
-						cell.init(NUMBER, sumOfNeighboringMines);
 					}
+					
+					cell->init(NUMBER, sumOfNeighboringMines);
 				}
 			} while(!(*evaluate)(*this, row, col));
 			
@@ -920,25 +963,22 @@ class Minefield final : public Field {
 			col = screenPosition.X - positionOffset.X;
 		}
 		
-		Cell* at(const COORD& screenPosition) {
+		Minecell* at(const COORD& screenPosition) {
 			short row, col;
 			getFieldCoordinatesFromScreenCoord(screenPosition, row, col);
 			return at(row, col);
 		}
 		
-		template<typename ContainerType = unordered_set<Cell*>>
+		template<typename ContainerType = unordered_set<Minecell*>>
 		void lose(ContainerType* const result = nullptr) {
 			gameStatus = LOST;
 			endTime = GetTickCount64();
 			
 			if(result != nullptr) {
-				for(vector<Cell>& row : cells) {
-					for(Cell& cellObject : row) {
-						Cell* cell = &cellObject;
-						if(cell->state == MINE || (cell->hidden && cell->flagged)) {
-							cell->hidden = false;
-							result->insert(result->end(), cell);
-						}
+				for(Minecell* cell : getAllCells()) {
+					if(cell->state == MINE || (cell->hidden && cell->flagged)) {
+						cell->hidden = false;
+						result->insert(result->end(), cell);
 					}
 				}
 			}
@@ -966,6 +1006,27 @@ class Minefield final : public Field {
 			resetBoard();
 		}
 		
+		//Copy constructor
+		Minefield(const Minefield& other) :
+				Field(other.rows, other.cols),
+				mines(other.mines),
+				mineCount(other.mines),
+				positionOffset(other.positionOffset),
+				evaluate(other.evaluate),
+				gameStatus(other.gameStatus),
+				remainingSpaces(other.remainingSpaces),
+				startTime(other.startTime),
+				endTime(other.endTime)
+		{
+			cells = vector<vector<Cell*>>();
+			for(short row = 0; row < rows; row++) {
+				cells.push_back(vector<Cell*>());
+				for(short col = 0; col < cols; col++) {
+					cells.at(row).push_back(new Minecell(*other.at(row, col)));
+				}
+			}
+		}
+		
 		/**
 		 * @return a coordinate that holds the position of the board's top-left corner, in the screen coordinate system.
 		 */
@@ -983,7 +1044,7 @@ class Minefield final : public Field {
 		/**
 		 * @return a coordinate that holds the position of the given cell, in the screen coordinate system.
 		 */
-		const COORD getPositionOf(Cell* cell) const {
+		const COORD getPositionOf(Minecell* cell) const {
 			return COORD{short(cell->col + positionOffset.X), short(cell->row + positionOffset.Y)};
 		}
 		
@@ -1028,8 +1089,8 @@ class Minefield final : public Field {
 		 * @param result points to a set where pointers to newly flagged/unflagged cells will be placed.
 		 * @return the given cell.
 		 */
-		template<typename ContainerType = unordered_set<Cell*>>
-		Cell* flagSpace(Cell* cell, ContainerType* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* flagSpace(Minecell* cell, ContainerType* const result = nullptr) {
 			if(gameStatus == PLAYING) {
 				const short flagActionStatus = cell->toggleFlag();
 				mineCount -= flagActionStatus;
@@ -1042,13 +1103,13 @@ class Minefield final : public Field {
 			return cell;
 		}
 		
-		template<typename ContainerType = unordered_set<Cell*>>
-		Cell* flagSpace(const short& row, const short& col, ContainerType* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* flagSpace(const short& row, const short& col, ContainerType* const result = nullptr) {
 			return flagSpace(at(row, col), result);
 		}
 		
-		template<typename ContainerType = unordered_set<Cell*>>
-		Cell* flagSpace(const COORD& screenPosition, ContainerType* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* flagSpace(const COORD& screenPosition, ContainerType* const result = nullptr) {
 			return flagSpace(at(screenPosition), result);
 		}
 		
@@ -1058,8 +1119,8 @@ class Minefield final : public Field {
 		 * @param result points to a set where pointers to newly revealed cells will be placed.
 		 * @return the given cell.
 		 */
-		template<typename ContainerType = unordered_set<Cell*>>
-		Cell* revealSpace(Cell* cell, ContainerType* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* revealSpace(Minecell* cell, ContainerType* const result = nullptr) {
 			if(gameStatus == UNSTARTED) {
 				cell = init(cell->row, cell->col);
 			}
@@ -1077,8 +1138,8 @@ class Minefield final : public Field {
 						break;
 					}
 					case BLANK: {
-						unordered_set<Cell*> neighbors = getAdjacentCells(cell);
-						for(Cell* neighbor : neighbors) {
+						unordered_set<Minecell*> neighbors = getAdjacentCells(cell);
+						for(Minecell* neighbor : neighbors) {
 							revealSpace(neighbor, result);
 						}
 					}
@@ -1093,13 +1154,13 @@ class Minefield final : public Field {
 			return cell;
 		}
 		
-		template<typename ContainerType = unordered_set<Cell*>>
-		Cell* revealSpace(const short& row, const short& col, ContainerType* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* revealSpace(const short& row, const short& col, ContainerType* const result = nullptr) {
 			return revealSpace(at(row, col), result);
 		}
 		
-		template<typename ContainerType = unordered_set<Cell*>>
-		Cell* revealSpace(const COORD& screenPosition, ContainerType* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* revealSpace(const COORD& screenPosition, ContainerType* const result = nullptr) {
 			return revealSpace(at(screenPosition), result);
 		}
 		
@@ -1109,15 +1170,15 @@ class Minefield final : public Field {
 		 * @param result points to a set where pointers to newly revealed cells will be placed.
 		 * @return the given cell.
 		 */
-		template<typename ContainerType = unordered_set<Cell*>>
-		Cell* chordSpace(Cell* cell, ContainerType* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* chordSpace(Minecell* cell, ContainerType* const result = nullptr) {
 			if(gameStatus == PLAYING) {
 				const short number = cell->getNumber();
 				if(number) {
 					//Count adjacent flags
-					unordered_set<Cell*> neighbors = getAdjacentCells(cell);
+					unordered_set<Minecell*> neighbors = getAdjacentCells(cell);
 					short numNeighboringFlags = 0;
-					for(Cell* neighbor : neighbors) {
+					for(Minecell* neighbor : neighbors) {
 						if(neighbor->isFlagged()) {
 							numNeighboringFlags++;
 						}
@@ -1125,7 +1186,7 @@ class Minefield final : public Field {
 					
 					//If count is correct, reveal all non-flagged cells (attempt to reveal all adjacent cells, flagged cells will be ignored)
 					if(numNeighboringFlags == number) {
-						for(Cell* neighbor : neighbors) {
+						for(Minecell* neighbor : neighbors) {
 							revealSpace(neighbor, result);
 						}
 					}
@@ -1135,13 +1196,13 @@ class Minefield final : public Field {
 			return cell;
 		}
 		
-		template<typename ContainerType = unordered_set<Cell*>>
-		Cell* chordSpace(const short& row, const short& col, ContainerType* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* chordSpace(const short& row, const short& col, ContainerType* const result = nullptr) {
 			return chordSpace(at(row, col), result);
 		}
 		
-		template<typename ContainerType = unordered_set<Cell*>>
-		Cell* chordSpace(const COORD& screenPosition, ContainerType* const result = nullptr) {
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* chordSpace(const COORD& screenPosition, ContainerType* const result = nullptr) {
 			return chordSpace(at(screenPosition), result);
 		}
 };
