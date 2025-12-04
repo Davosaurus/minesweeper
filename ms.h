@@ -180,12 +180,15 @@ const function<bool(const string&)> isNotBlank() {
 	return [](const string& input) { return input.length() > 0; };
 }
 
-const function<bool(const string&)> isDigits() {
-	return [](const string& input) { return all_of(input.begin(), input.end(), ::isdigit); };
-}
-
 const function<bool(const string&)> isInNumericRange(const int& min, const int& max) {
-	return [min, max](const string& input) { return isNotBlank()(input) && isDigits()(input) && stoi(input) >= min && stoi(input) <= max; };
+	return [min, max](const string& input) {
+		try {
+			return stoi(input) >= min && stoi(input) <= max;
+		}
+		catch(invalid_argument e) {
+			return false;
+		}
+	};
 }
 
 const function<bool(const string&)> isAlpha() {
@@ -500,7 +503,7 @@ public:
 
 /**
  * Attempt to get any user input from the keyboard. If any key is pressed, exit immediately with exception. If the timeout limit is reached, return normally.
- * @throws UserExitException if the user presses ESC key to exit
+ * @throws UserExitException if the user presses a key to exit
  */
 void waitForUserInput(ULONGLONG timeout = -10 - GetTickCount64()) {
 	ULONGLONG endTime = GetTickCount64() + timeout;
@@ -1207,6 +1210,38 @@ class Minefield final : public Field {
 		}
 };
 
+class Solver final {
+	private:
+		Minefield& minefield;
+	public:
+		Solver(Minefield& desiredMinefield) : minefield(desiredMinefield) {}
+	
+		/**
+		 * Advance the solver one step, i.e. make one game move
+		 * @param result points to a set where pointers to newly revealed cells will be placed.
+		 * @return the cell that was acted upon.
+		 */
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* step(ContainerType* const result = nullptr) {
+			//Construct a distribution which, when given a randomizer, can produce a number that refers to a unique cell in the field space
+			uniform_int_distribution<> generateNumberInRangeUsing(0, (minefield.getRows() * minefield.getCols()) - 1);
+			int index = generateNumberInRangeUsing(randomizer);
+			short candidateRow = index / minefield.getCols();
+			short candidateCol = index % minefield.getCols();
+			
+			return minefield.revealSpace(candidateRow, candidateCol, result);
+		}
+		
+		/**
+		 * Continue advancing the solver until the game is won or lost
+		 * @return whether the game was won.
+		 */
+		bool solve() {
+			//TODO implement
+			return true;
+		}
+};
+
 namespace evaluators {
 
 bool random(const Minefield& field, const short& row, const short& col) {
@@ -1246,8 +1281,8 @@ bool safeStartPlus(const Minefield& field, const short& row, const short& col) {
 }
 
 bool noGuess(const Minefield& field, const short& row, const short& col) {
-	//do some fancy algorithm stuff to solve the board
-	return true;
+	Minefield prospectiveField = Minefield(field);
+	return Solver(prospectiveField).solve();
 }
 
 }

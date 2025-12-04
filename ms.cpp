@@ -132,22 +132,24 @@ void checkForGameEnd(Minecell* const cell, const Minefield& minefield, Settings&
 		window::printEdgeBorders(windowSize, text::BLACK, background::GREEN, 1, 2);
 		window::printInRectangle(color(character::INDICATOR_WON, text::WHITE, background::GREEN), COORD{short(windowSize.X / 2), 1});
 		
-		string playerName = settings.getPlayerName();
-		auto addHighScoreResult = settings.addHighScore(minefield, playerName);
-		if(addHighScoreResult.second) {
-			window::printInRectangle(color("High Score!", text::WHITE, background::GREEN), COORD{0, 0});
+		if(settings.getSolverModeDelay() == -1) { //only record high score if a human was playing
+			string playerName = settings.getPlayerName();
+			auto addHighScoreResult = settings.addHighScore(minefield, playerName);
+			if(addHighScoreResult.second) {
+				window::printInRectangle(color("High Score!", text::WHITE, background::GREEN), COORD{0, 0});
 
-			if(playerName == "") {
-				window::printInRectangle(color("Name: ⎕⎕⎕", text::WHITE, background::GREEN), COORD{1, 2});
-				auto removeHighScoreResult = settings.removeHighScore(addHighScoreResult.first);
-				try {
-					settings.addHighScore(removeHighScoreResult, minefield, window::getTextInput(COORD{7, 2}, 3, isNotBlank() && isAlpha()));
-				} catch(window::UserExitException e) {
-					return;
+				if(playerName == "") {
+					window::printInRectangle(color("Name: ⎕⎕⎕", text::WHITE, background::GREEN), COORD{1, 2});
+					auto removeHighScoreResult = settings.removeHighScore(addHighScoreResult.first);
+					try {
+						settings.addHighScore(removeHighScoreResult, minefield, window::getTextInput(COORD{7, 2}, 3, isNotBlank() && isAlpha()));
+					} catch(window::UserExitException e) {
+						return;
+					}
 				}
+				
+				settings.save();
 			}
-			
-			settings.save();
 		}
 	}
 }
@@ -329,11 +331,14 @@ int main() {
 								.addRow()
 										.addCell("4")
 										.addCell("Player Username")
+								.addRow()
+										.addCell("5")
+										.addCell("Auto-Solver Mode")
 								.print();
 						window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
 						
 						try {
-							menuChoice = window::getNumericInput(inputLocation, 1, isInNumericRange(1, 4));
+							menuChoice = window::getNumericInput(inputLocation, 1, isInNumericRange(1, 5));
 						} catch(window::UserExitException e) {
 							break;
 						}
@@ -345,7 +350,7 @@ int main() {
 									window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
 									
 									window::printInRectangle("Board Generation Rules", COORD{1, 1});
-									window::printInRectangle(color("This controls how the board generates mines upon first move", text::DARK_GRAY), COORD{1, 3}, COORD{42, 4});
+									window::printInRectangle(color("This controls how the board generates mines upon first move.", text::DARK_GRAY), COORD{1, 3}, COORD{42, 4});
 									window::Table()
 											.atPosition(COORD{4, 5})
 											.addRow()
@@ -400,7 +405,7 @@ int main() {
 									menuChoice = window::getNumericInput(inputLocation, 4, isInNumericRange(1, 9999), to_string(settings.getPixelDisplayThreshold()));
 									settings.setPixelDisplayThreshold(menuChoice);
 									break;
-								case 4:
+								case 4: {
 									window::initialize(menuFont, windowSize);
 									window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
 									
@@ -410,6 +415,18 @@ int main() {
 									
 									string newName = window::getTextInput(inputLocation, 3, isAlpha(), settings.getPlayerName());
 									settings.setPlayerName(newName);
+									break;
+								}
+								case 5:
+									window::initialize(menuFont, windowSize);
+									window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 2, 2, short(inputLocation.Y - 1));
+									
+									window::printInRectangle("Auto-Solver Mode", COORD{1, 1});
+									window::printInRectangle(color("When enabled, the computer will solve the boards automatically. Set a positive number to enable, and the computer will wait for that many milliseconds between moves. Set to -1 to disable.", text::DARK_GRAY), COORD{1, 3}, COORD{42, 8});
+									window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
+									
+									menuChoice = window::getNumericInput(inputLocation, 4, isInNumericRange(-1, 9999), to_string(settings.getSolverModeDelay()));
+									settings.setSolverModeDelay(menuChoice);
 									break;
 							}
 						} catch(window::UserExitException e) {
@@ -440,6 +457,9 @@ int main() {
 				COORD{short((windowSize.X / 2) - (difficulty.dimensions.X / 2)), 3},
 				settings.getEvaluator()
 		);
+		
+		//Create a solver
+		field::Solver solver(minefield);
 		
 		//Initialize cursor
 		COORD position = COORD {
@@ -474,6 +494,7 @@ int main() {
 		
 		bool exit = false;
 		short lastKnownTime = -1;
+		ULONGLONG lastAutoSolverStepTime = GetTickCount64();
 		do {
 			//Display UI timer if it needs updating
 			short currentTime = minefield.getElapsedTime() / 1000;
@@ -482,7 +503,9 @@ int main() {
 				window::printInRectangle(color(getTextFromNumericField(currentTime, 4), text::RED), COORD{short(windowSize.X - 5), 1});
 				lastKnownTime = currentTime;
 				SetConsoleCursorPosition(window::handleOut, position);
-				window::showCursor();
+				if(settings.getSolverModeDelay() == -1) {
+					window::showCursor();
+				}
 			}
 			
 			//Gather keyboard input
@@ -494,6 +517,22 @@ int main() {
 				128,				// size of read buffer
 				&cNumRead,			// number of records read
 				0x0002);			// do not wait for input before returning
+			
+			//Check if auto-solver should perform a step
+			if(cNumRead == 0
+					&& settings.getSolverModeDelay() > -1
+					&& GetTickCount64() > lastAutoSolverStepTime + settings.getSolverModeDelay()) {
+				lastAutoSolverStepTime = GetTickCount64();
+				cNumRead = 1;
+				
+				KEY_EVENT_RECORD dummyKeyEvent;
+				dummyKeyEvent.bKeyDown = true;
+				dummyKeyEvent.wVirtualKeyCode = VK_EXECUTE;
+				INPUT_RECORD dummyRecord;
+				dummyRecord.EventType = KEY_EVENT;
+				dummyRecord.Event.KeyEvent = dummyKeyEvent;
+				inputBuffer[0] = dummyRecord;
+			}
 			
 			//For each input in the buffer...
 			for(int i = 0; i < cNumRead; i++) {
@@ -520,56 +559,63 @@ int main() {
 				Minecell* resultingCell;
 				
 				//Handle input
-				switch(keyEvent.wVirtualKeyCode) {
-					case VK_ESCAPE:
-						exit = true;
-						break;
-					case VK_UP:
-						if(position.Y > min.Y)
-							if(keyEvent.dwControlKeyState & LEFT_ALT_PRESSED)
-								position.Y = min.Y;
-							else
-								position.Y--;
-						break;
-					case VK_DOWN:
-						if(position.Y < max.Y)
-							if(keyEvent.dwControlKeyState & LEFT_ALT_PRESSED)
-								position.Y = max.Y;
-							else
-								position.Y++;
-						break;
-					case VK_LEFT:
-						if(position.X > min.X)
-							if(keyEvent.dwControlKeyState & LEFT_ALT_PRESSED)
-								position.X = min.X;
-							else
-								position.X--;
-						break;
-					case VK_RIGHT:
-						if(position.X < max.X)
-							if(keyEvent.dwControlKeyState & LEFT_ALT_PRESSED)
-								position.X = max.X;
-							else
-								position.X++;
-						break;
-					case VK_RETURN:
-						settings.getContainerType() == "fragmented"
-								? resultingCell = minefield.revealSpace(position, &resultSet)
-								: resultingCell = minefield.revealSpace(position, &resultVector);
-						break;
-					case VK_SPACE:
-						settings.getContainerType() == "fragmented"
-								? resultingCell = minefield.flagSpace(position, &resultSet)
-								: resultingCell = minefield.flagSpace(position, &resultVector);
-						
-						//Display mine count
-						window::printInRectangle(color(getTextFromNumericField(minefield.getMineCount(), 4), text::RED), COORD{1, 1});
-						break;
-					case 'C':
-						settings.getContainerType() == "fragmented"
-								? resultingCell = minefield.chordSpace(position, &resultSet)
-								: resultingCell = minefield.chordSpace(position, &resultVector);
-						break;
+				if(keyEvent.wVirtualKeyCode == VK_ESCAPE) {
+					exit = true;
+				}
+				else if(settings.getSolverModeDelay() == -1) {
+					switch(keyEvent.wVirtualKeyCode) {
+						case VK_UP:
+							if(position.Y > min.Y)
+								if(keyEvent.dwControlKeyState & LEFT_ALT_PRESSED)
+									position.Y = min.Y;
+								else
+									position.Y--;
+							break;
+						case VK_DOWN:
+							if(position.Y < max.Y)
+								if(keyEvent.dwControlKeyState & LEFT_ALT_PRESSED)
+									position.Y = max.Y;
+								else
+									position.Y++;
+							break;
+						case VK_LEFT:
+							if(position.X > min.X)
+								if(keyEvent.dwControlKeyState & LEFT_ALT_PRESSED)
+									position.X = min.X;
+								else
+									position.X--;
+							break;
+						case VK_RIGHT:
+							if(position.X < max.X)
+								if(keyEvent.dwControlKeyState & LEFT_ALT_PRESSED)
+									position.X = max.X;
+								else
+									position.X++;
+							break;
+						case VK_RETURN:
+							settings.getContainerType() == "fragmented"
+									? resultingCell = minefield.revealSpace(position, &resultSet)
+									: resultingCell = minefield.revealSpace(position, &resultVector);
+							break;
+						case VK_SPACE:
+							settings.getContainerType() == "fragmented"
+									? resultingCell = minefield.flagSpace(position, &resultSet)
+									: resultingCell = minefield.flagSpace(position, &resultVector);
+							
+							//Display mine count
+							window::printInRectangle(color(getTextFromNumericField(minefield.getMineCount(), 4), text::RED), COORD{1, 1});
+							break;
+						case 'C':
+							settings.getContainerType() == "fragmented"
+									? resultingCell = minefield.chordSpace(position, &resultSet)
+									: resultingCell = minefield.chordSpace(position, &resultVector);
+							break;
+					}
+				}
+				else {
+					settings.getContainerType() == "fragmented"
+							? resultingCell = solver.step(&resultSet)
+							: resultingCell = solver.step(&resultVector);
 				}
 				
 				//Print all new cells from the result of the operation

@@ -130,6 +130,7 @@ class Settings {
 			{"containerType", "ordered"},
 			{"pixelDisplayThreshold", "4"},
 			{"playerName", ""},
+			{"solverModeDelay", "-1"},
 			{"highScores", ""}
 		};
 		
@@ -229,6 +230,14 @@ class Settings {
 		
 		void setPlayerName(const string& name) {
 			settings["playerName"] = name;
+		}
+		
+		const int getSolverModeDelay() {
+			return stoi(settings["solverModeDelay"]);
+		}
+		
+		void setSolverModeDelay(const int& delayMillis) {
+			settings["solverModeDelay"] = to_string(delayMillis);
 		}
 		
 		const set<HighScore, HighScoreComparator>& getHighScores() const {
