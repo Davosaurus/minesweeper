@@ -459,7 +459,7 @@ int main() {
 		);
 		
 		//Create a solver
-		field::Solver solver(minefield);
+		solver::Solver solver(minefield);
 		
 		//Initialize cursor
 		COORD position = COORD {
