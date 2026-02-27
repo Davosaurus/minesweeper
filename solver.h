@@ -95,10 +95,16 @@ class Solver final : public Field {
 					}
 					
 					//If possibilities size is reduced to (and now equals) mine count, we know the remaining possibilities (if any) are all mines and can be flagged.
-					//N mines in N spaces, move this solver cell to the front of the working list so that it gets processed next.
+					//N mines in N spaces, this is a trivial case that is immediately actionable:
+					//    move this solver cell to the FRONT of the working list so that it gets processed next.
 					if(neighbor->possibilitySet->possibilities.size() == neighbor->possibilitySet->numAdjacentMines) {
-						//TODO: move this solver cell to the front of the working list
+						//TODO: move this solver cell to the FRONT of the working list and continue;
 					}
+					
+					//In all non-trivial cases, we still updated this solver cell,
+					//    which means it is more valuable to search next than cells which have not been recently updated.
+					//Thus, move this solver cell to the MIDDLE of the working list so that it gets processed after trivial cases but before stale cases.
+					//TODO: move this solver cell to the MIDDLE of the working list (segment 1)
 				}
 			}
 		}
@@ -117,11 +123,17 @@ class Solver final : public Field {
 						throw logic_error("Possibility set contains negative mine count after flagging a cell");
 					}
 					
-					//If mine count is reduced to 0, we know the remaining possibilities (if any) are safe to reveal.
-					//0 mines in N spaces, move this solver cell to the front of the working list so that it gets processed next.
+					// If mine count is reduced to 0, we know the remaining possibilities (if any) are safe to reveal.
+					// 0 mines in N spaces, this is a trivial case that is immediately actionable:
+					// move this solver cell to the FRONT of the working list so that it gets processed next.
 					if(neighbor->possibilitySet->numAdjacentMines == 0) {
-						//TODO: move this solver cell to the front of the working list
+						//TODO: move this solver cell to the FRONT of the working list and continue;
 					}
+					
+					// In all non-trivial cases, we still updated this solver cell,
+					// which means it is more valuable to search next than cells which have not been recently updated.
+					// Thus, move this solver cell to the MIDDLE of the working list so that it gets processed after trivial cases but before stale cases.
+					//TODO: move this solver cell to the MIDDLE of the working list (segment 1)
 				}
 			}
 		}
@@ -161,7 +173,7 @@ class Solver final : public Field {
 					
 					solvercell->possibilitySet = newPossibilitySet;
 					
-					//TODO: add this solver cell to the front of the working list
+					//TODO: add this solver cell to the BACK of the working list
 				}
 			}
 			
@@ -213,14 +225,13 @@ class Solver final : public Field {
 			//case 1: set has mine count of 0 && possibilities of size 0
 			//     action: cell is solved, remove it from working set, and continue looping
 			//case 2: set has mine count of 0
-			//     action: reveal any (aka first) cell in the set, process results, and return
+			//     action: reveal any (aka first) cell in the set, process results, and return. Set is kept at front position in the list.
 			//case 3: set has positive mine count of N && set has possibilities of size N
-			//     action: flag any (aka first) cell in the set, process results, and return
+			//     action: flag any (aka first) cell in the set, process results, and return. Set is kept at front position in the list.
 			//case 4: otherwise
 			//     action: check if the set is a subset of another set, and continue looping
-			//          keep track of some kind of "isDirty" marker or similar, to track whether a given set has been evaluated already for being a subset?
 			//               **only need to recheck for being a subset when nearby cells are updated**
-			//			or, instead of skipping already checked cells, just keep them at the back of the list and keep the front populated with cells that have had neighbor updates recently
+			//			instead of skipping already checked cells, just keep them at the back of the list and keep the front populated with cells that have had neighbor updates recently
 			//     can try having this be a "do nothing" case at first, to see how well the other cases do at advancing the board
 		}
 		
@@ -229,16 +240,15 @@ class Solver final : public Field {
 		 * @return whether the game was won.
 		 */
 		bool solve() {
-			return true;
-			// try {
-				// do {
-					// unordered_set<Minecell*> resultSet;
-					// step(&resultSet);
-				// } while(minefield.getGameStatus() == PLAYING);
-				// return minefield.getGameStatus() == WON;
-			// } catch(NoValidMoveException e) {
-				// return false;
-			// }
+			try {
+				do {
+					unordered_set<Minecell*> resultSet;
+					step(&resultSet);
+				} while(minefield.getGameStatus() == PLAYING);
+				return minefield.getGameStatus() == WON;
+			} catch(NoValidMoveException e) {
+				return false;
+			}
 		}
 };
 
