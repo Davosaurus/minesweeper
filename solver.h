@@ -1,5 +1,5 @@
 #include "ms.h"
-// #include "value_reorderable_list.h"
+// #include "partitioned_value_reorderable_list.h"
 #include <fstream>
 
 namespace solver {
@@ -42,7 +42,7 @@ class Solvercell final : public Cell {
 class Solver final : public Field {
 	private:
 		Minefield& minefield;
-		// value_reorderable_list<Solvercell*> workingList;
+		// partitioned_value_reorderable_list<Solvercell*> workingList;
 		
 		Solvercell* at(const short& row, const short& col) const {
 			return static_cast<Solvercell*>(Field::at(row, col));
@@ -104,7 +104,7 @@ class Solver final : public Field {
 					//In all non-trivial cases, we still updated this solver cell,
 					//    which means it is more valuable to search next than cells which have not been recently updated.
 					//Thus, move this solver cell to the MIDDLE of the working list so that it gets processed after trivial cases but before stale cases.
-					//TODO: move this solver cell to the MIDDLE of the working list (segment 1)
+					//TODO: move this solver cell to the MIDDLE of the working list (partition 1)
 				}
 			}
 		}
@@ -133,7 +133,7 @@ class Solver final : public Field {
 					// In all non-trivial cases, we still updated this solver cell,
 					// which means it is more valuable to search next than cells which have not been recently updated.
 					// Thus, move this solver cell to the MIDDLE of the working list so that it gets processed after trivial cases but before stale cases.
-					//TODO: move this solver cell to the MIDDLE of the working list (segment 1)
+					//TODO: move this solver cell to the MIDDLE of the working list (partition 1)
 				}
 			}
 		}
@@ -156,6 +156,7 @@ class Solver final : public Field {
 			
 			//Loop through results and initialize all NUMBER cells with possibility sets
 			//Pre-requirement: all result cells have a state. This is because we need to examine neighbors to build each possibility set.
+			//We can't be certain that a possibility set is initialized correctly unless we know that the number of uninitialized neighbor cells (and which cells they are) will not change.
 			for(Minecell* cell : *result) {
 				Solvercell* solvercell = at(cell->row, cell->col);
 				if(solvercell->state == NUMBER) {
@@ -178,22 +179,22 @@ class Solver final : public Field {
 			}
 			
 			//Log results
-			ofstream logFile("log.txt");
-			logFile << "|\n|\n|\n|\n|" << endl;
+			LOGGER << "Printing all number cells from processResults..." << endl;
 			for(const auto& minecell : *result) {
 				auto cell = at(minecell->row, minecell->col);
-				logFile << "================================================" << endl;
 				if(cell->state == NUMBER) {
-					logFile << "Data for cell [" << cell->row << ", " << cell->col << "]: Possibility Set with " << cell->possibilitySet->numAdjacentMines << " mines in the following cells:" << endl;
+					LOGGER << "Data for cell [" << cell->row << ", " << cell->col << "]: Possibility Set with " << cell->possibilitySet->numAdjacentMines << " mines in the following cells:" << endl;
 					for(const auto& possibility : cell->possibilitySet->possibilities) {
-						logFile << "\t[" << possibility->row << ", " << possibility->col << "]" << endl;
+						LOGGER << "\t[" << possibility->row << ", " << possibility->col << "]" << endl;
 					}
 				}
 			}
-			logFile.close();
 		}
 	
 	public:
+		/**
+		 * Constructor
+		 */
 		Solver(Minefield& desiredMinefield) : Field(desiredMinefield.getRows(), desiredMinefield.getCols()), minefield(desiredMinefield) {
 			cells = vector<vector<Cell*>>();
 			for(short row = 0; row < rows; row++) {
@@ -207,11 +208,15 @@ class Solver final : public Field {
 		/**
 		 * Advance the solver one step, i.e. make one game move
 		 * @param result points to a set where pointers to newly revealed cells will be placed.
+		 * It is a required parameter for the solver, because the solver must recieve the results of an operation in order to act on the knowledge contained therein.
 		 * @return the cell that was acted upon.
 		 */
 		template<typename ContainerType = unordered_set<Minecell*>>
 		Minecell* step(ContainerType* const result) {
-			if(minefield.getGameStatus() == UNSTARTED) {
+			if(minefield.getGameStatus() == WON || minefield.getGameStatus() == LOST) {
+				throw logic_error("Step was requested when game is already finished");
+			}
+			else if(minefield.getGameStatus() == UNSTARTED) {
 				Minecell* resultingCell = revealRandomSpace(result);
 				processResults(result);
 				return resultingCell;
@@ -220,6 +225,23 @@ class Solver final : public Field {
 			//What order to search through cells/possibility sets?
 			//    - Solution: keep some custom list of cells to look at.
 			//			Store pointers to SolverCell s - that way we can pull adjacent cells and reorder them to the top when relevant
+			
+			// std::forward_list<int> flist = {1, 2, 3, 4, 5};
+			// auto previous = flist.before_begin(); // Special iterator before the first element
+			// auto current = flist.begin();
+
+			// while(current != flist.end()) {
+				// if(*current % 2 != 0) {
+					// current = flist.erase_after(previous); // Removes current, returns iterator to next
+				// }
+				// else {
+					// previous = current; // Move both forward
+					// ++current;
+				// }
+			// }
+			
+			// All cells have been examined, and no valid move was found with the information available to us
+			throw NoValidMoveException();
 			
 			//Loop through all possibility sets - 4 possible cases to check:
 			//case 1: set has mine count of 0 && possibilities of size 0

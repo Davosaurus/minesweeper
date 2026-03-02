@@ -21,6 +21,15 @@ CONSOLE_FONT_INFOEX gameFont = {
 	L"MS Gothic"
 };
 
+BOOL WINAPI ConsoleHandler(DWORD dwType) {
+	if(dwType == CTRL_CLOSE_EVENT) {
+		// Remove the log file if application is exiting normally (user uses mouse to close window)
+		LOGGER.clear();
+		return TRUE;
+	}
+	return FALSE;
+}
+
 struct Difficulty {
 	public:
 		COORD dimensions;
@@ -115,20 +124,20 @@ void print(ContainerType* const cells, const Minefield& minefield, Settings& set
 	}
 }
 
-void checkForGameEnd(Minecell* const cell, const Minefield& minefield, Settings& settings, bool& gameInProgress) {
-	GameStatus currentGameStatus = minefield.getGameStatus();
-	if(gameInProgress && currentGameStatus == GameStatus::LOST) {
-		gameInProgress = false;
-		
+/**
+ * @return true, if the game has ended. false, if the game is still in progress
+ */
+bool checkForGameEnd(Minecell* const cell, const Minefield& minefield, Settings& settings) {
+	if(minefield.getGameStatus() == LOST) {
 		window::printEdgeBorders(windowSize, text::BLACK, background::RED, 1, 2);
 		window::printInRectangle(color(character::INDICATOR_LOST, text::WHITE, background::RED), COORD{short(windowSize.X / 2), 1});
 		
 		//Print extra bad space to show which move lost the game
 		print(cell, minefield, settings, true);
-	}
-	else if(gameInProgress && currentGameStatus == GameStatus::WON) {
-		gameInProgress = false;
 		
+		return true;
+	}
+	else if(minefield.getGameStatus() == WON) {
 		window::printEdgeBorders(windowSize, text::BLACK, background::GREEN, 1, 2);
 		window::printInRectangle(color(character::INDICATOR_WON, text::WHITE, background::GREEN), COORD{short(windowSize.X / 2), 1});
 		
@@ -144,21 +153,28 @@ void checkForGameEnd(Minecell* const cell, const Minefield& minefield, Settings&
 					try {
 						settings.addHighScore(removeHighScoreResult, minefield, window::getTextInput(COORD{7, 2}, 3, isNotBlank() && isAlpha()));
 					} catch(window::UserExitException e) {
-						return;
+						return true;
 					}
 				}
 				
 				settings.save();
 			}
 		}
+		
+		return true;
 	}
+	
+	return false;
 }
 
 int main() {
+	//Set console handler so we can intercept Close button being clicked and clear the log file
+	SetConsoleCtrlHandler(ConsoleHandler, TRUE);
+	
 	SetConsoleTitle("Minesweeper");
 	
-    //Set console code page to UTF-8
-    SetConsoleOutputCP(CP_UTF8);
+	//Set console code page to UTF-8
+	SetConsoleOutputCP(CP_UTF8);
 	
 	//Disable QuickEdit mode (to prevent pausing when clicking in window)
 	DWORD prev_mode;
@@ -174,8 +190,18 @@ int main() {
 	//Load settings
 	Settings settings = Settings();
 	
-	while(1)
-	{
+	//Variable to hold difficulty, which can persist between games if auto-solver is enabled
+	Difficulty difficulty;
+	
+	//Variable that is used to control the main application loop. Application loops infinitely by default, but user sending exit request will set this variable to true, which will exit this loop and return from main().
+	bool exitApplication = false;
+	
+	//Main application loop - a full game is completed once for each iteration of this loop. Or, logic might continue to the next iteration early, if reloading the main menu for example.
+	do {
+//TODO: start giant if here to control whether main menu rendering is skipped?
+	
+		// Start rendering the main menu
+		
 		windowSize.X = 44;
 		windowSize.Y = 13;
 		
@@ -211,13 +237,12 @@ int main() {
 				.print();
 		window::printInRectangle(">", COORD{short(inputLocation.X - 1), inputLocation.Y});
 		
-		Difficulty difficulty;
-		
 		short menuChoice;
 		try {
 			menuChoice = window::getNumericInput(inputLocation, 1, isInNumericRange(1, 7));
 		} catch(window::UserExitException e) {
-			return 0;
+			exitApplication = true;
+			continue;
 		}
 		
 		try {
@@ -447,6 +472,11 @@ int main() {
 		window::scaleFontSizeToFit(gameFont, windowSize);
 		
 		system("color 70");
+		
+//TODO: probably end the giant if here
+		
+		LOGGER << "Starting a new game! Parameters: rows=" << difficulty.dimensions.Y << ", cols=" << difficulty.dimensions.X << ", mines=" << difficulty.mines << ", evaluator=" << settings.getEvaluatorName() << endl;
+		
 		window::initialize(gameFont, windowSize);
 		window::printEdgeBorders(windowSize, text::BLACK, background::DARK_GRAY, 1, 2);
 		
@@ -490,11 +520,12 @@ int main() {
 		unordered_set<Minecell*> resultSet;
 		
 		//Flag to ensure end of game is only checked once
-		bool gameInProgress = true;
-		
+		bool gameEnded = false;
+
 		bool exit = false;
 		short lastKnownTime = -1;
 		ULONGLONG lastAutoSolverStepTime = GetTickCount64();
+		short numIterationsToWaitBetweenGames = 10;
 		do {
 			//Display UI timer if it needs updating
 			short currentTime = minefield.getElapsedTime() / 1000;
@@ -612,30 +643,45 @@ int main() {
 							break;
 					}
 				}
+				else if(gameEnded) {
+					if(numIterationsToWaitBetweenGames > 0) {
+						numIterationsToWaitBetweenGames--;
+					}
+					else {
+						exit = true; //auto-solver is enabled, a game was completed, and enough time has passed to start a new game
+					}
+				}
 				else {
 					settings.getContainerType() == "fragmented"
 							? resultingCell = solver.step(&resultSet)
 							: resultingCell = solver.step(&resultVector);
 				}
 				
-				//Print all new cells from the result of the operation
-				if(settings.getContainerType() == "fragmented") {
-					print(&resultSet, minefield, settings);
+				// Only if the game has not ended do we need to check for new cells to render or win/loss conditions
+				if(!gameEnded) {
+					//Print all new cells from the result of the operation
+					if(settings.getContainerType() == "fragmented") {
+						print(&resultSet, minefield, settings);
+					}
+					else if(settings.getContainerType() == "random") {
+						shuffle(resultVector.begin(), resultVector.end(), randomizer);
+						print(&resultVector, minefield, settings);
+					}
+					else if(settings.getContainerType() == "ordered") {
+						print(&resultVector, minefield, settings);
+					}
+					
+					//Check for win/loss and display results
+					gameEnded = checkForGameEnd(resultingCell, minefield, settings);
 				}
-				else if(settings.getContainerType() == "random") {
-					shuffle(resultVector.begin(), resultVector.end(), randomizer);
-					print(&resultVector, minefield, settings);
-				}
-				else if(settings.getContainerType() == "ordered") {
-					print(&resultVector, minefield, settings);
-				}
-				
-				//Check for win/loss and display results
-				checkForGameEnd(resultingCell, minefield, settings, gameInProgress);
 				
 				//Set cursor position in case it changed
 				SetConsoleCursorPosition(window::handleOut, position);
 			}
 		} while(!exit);
-	}
+	} while(!exitApplication);
+	
+	// Remove the log file if application is exiting normally (user hits ESC on main menu)
+	LOGGER.clear();
+	return 0;
 }

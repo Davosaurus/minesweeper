@@ -2,8 +2,8 @@
 
 #include <algorithm>
 #include <functional>
-#include <iostream>
 #include <limits.h>
+#include "logger.h"
 #include <random>
 #include <stdexcept>
 #include <time.h>

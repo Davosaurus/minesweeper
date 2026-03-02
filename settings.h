@@ -196,6 +196,10 @@ class Settings {
 			return &field::evaluators::evaluator[settings["evaluator"]];
 		}
 		
+		const string getEvaluatorName() {
+			return settings["evaluator"];
+		}
+		
 		const short getEvaluatorOrdinal() {
 			return distance(evaluatorNames.begin(), find(evaluatorNames.begin(), evaluatorNames.end(), settings["evaluator"])) + 1;
 		}
