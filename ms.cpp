@@ -525,7 +525,7 @@ int main() {
 		bool exit = false;
 		short lastKnownTime = -1;
 		ULONGLONG lastAutoSolverStepTime = GetTickCount64();
-		short numIterationsToWaitBetweenGames = 10;
+		short numIterationsToWaitBetweenGames = settings.getSolverModeNumberOfDelayIterationsToWaitBetweenGames();
 		do {
 			//Display UI timer if it needs updating
 			short currentTime = minefield.getElapsedTime() / 1000;

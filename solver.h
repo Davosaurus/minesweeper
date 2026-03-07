@@ -1,5 +1,5 @@
 #include "ms.h"
-// #include "partitioned_value_reorderable_list.h"
+#include "partitioned_value_reorderable_list.h"
 #include <fstream>
 
 namespace solver {
@@ -23,6 +23,8 @@ struct PossibilitySet {
 
 class Solvercell final : public Cell {
 	friend class Solver;
+	friend ostream& operator<<(ostream& outputStream, const Solvercell& cell);
+	
 	private:
 		State state;
 		PossibilitySet* possibilitySet;
@@ -38,6 +40,14 @@ class Solvercell final : public Cell {
 			delete possibilitySet;
 		}
 };
+
+ostream& operator<<(ostream& outputStream, const Solvercell& cell) {
+	outputStream << "Data for cell [" << cell.row << ", " << cell.col << "]: Possibility Set with " << cell.possibilitySet->numAdjacentMines << " mines in the following cells:" << endl;
+	for(const auto& possibility : cell.possibilitySet->possibilities) {
+		outputStream << "\t[" << possibility->row << ", " << possibility->col << "]" << endl;
+	}
+	return outputStream;
+}
 
 class Solver final : public Field {
 	private:
@@ -96,13 +106,13 @@ class Solver final : public Field {
 					
 					//If possibilities size is reduced to (and now equals) mine count, we know the remaining possibilities (if any) are all mines and can be flagged.
 					//N mines in N spaces, this is a trivial case that is immediately actionable:
-					//    move this solver cell to the FRONT of the working list so that it gets processed next.
+					//	move this solver cell to the FRONT of the working list so that it gets processed next.
 					if(neighbor->possibilitySet->possibilities.size() == neighbor->possibilitySet->numAdjacentMines) {
 						//TODO: move this solver cell to the FRONT of the working list and continue;
 					}
 					
 					//In all non-trivial cases, we still updated this solver cell,
-					//    which means it is more valuable to search next than cells which have not been recently updated.
+					//	which means it is more valuable to search next than cells which have not been recently updated.
 					//Thus, move this solver cell to the MIDDLE of the working list so that it gets processed after trivial cases but before stale cases.
 					//TODO: move this solver cell to the MIDDLE of the working list (partition 1)
 				}
@@ -171,6 +181,9 @@ class Solver final : public Field {
 					if(newPossibilitySet->numAdjacentMines > newPossibilitySet->possibilities.size()) {
 						throw logic_error("Possibility set contains more mines than possible cells after construction");
 					}
+					if(newPossibilitySet->numAdjacentMines > minefield.getMineCount()) {
+						throw logic_error("Possibility set contains more mines than are left in the game after construction");
+					}
 					
 					solvercell->possibilitySet = newPossibilitySet;
 					
@@ -179,14 +192,11 @@ class Solver final : public Field {
 			}
 			
 			//Log results
-			LOGGER << "Printing all number cells from processResults..." << endl;
+			LOGGER << endl << "Printing all number cells from processResults..." << endl;
 			for(const auto& minecell : *result) {
-				auto cell = at(minecell->row, minecell->col);
+				Solvercell* cell = at(minecell->row, minecell->col);
 				if(cell->state == NUMBER) {
-					LOGGER << "Data for cell [" << cell->row << ", " << cell->col << "]: Possibility Set with " << cell->possibilitySet->numAdjacentMines << " mines in the following cells:" << endl;
-					for(const auto& possibility : cell->possibilitySet->possibilities) {
-						LOGGER << "\t[" << possibility->row << ", " << possibility->col << "]" << endl;
-					}
+					LOGGER << "Processed result: " << *cell;
 				}
 			}
 		}
@@ -223,14 +233,16 @@ class Solver final : public Field {
 			}
 			
 			//What order to search through cells/possibility sets?
-			//    - Solution: keep some custom list of cells to look at.
+			//	- Solution: keep some custom list of cells to look at.
 			//			Store pointers to SolverCell s - that way we can pull adjacent cells and reorder them to the top when relevant
 			
 			// std::forward_list<int> flist = {1, 2, 3, 4, 5};
 			// auto previous = flist.before_begin(); // Special iterator before the first element
 			// auto current = flist.begin();
 
+			// LOGGER << endl << "Examining all possibility sets..." << endl;
 			// while(current != flist.end()) {
+				// LOGGER << "Examining set: " << *current << endl;
 				// if(*current % 2 != 0) {
 					// current = flist.erase_after(previous); // Removes current, returns iterator to next
 				// }
@@ -245,16 +257,33 @@ class Solver final : public Field {
 			
 			//Loop through all possibility sets - 4 possible cases to check:
 			//case 1: set has mine count of 0 && possibilities of size 0
-			//     action: cell is solved, remove it from working set, and continue looping
+			//	 action: cell is solved, remove it from working set, and continue looping
 			//case 2: set has mine count of 0
-			//     action: reveal any (aka first) cell in the set, process results, and return. Set is kept at front position in the list.
+			//	 action: reveal any (aka first) cell in the set, process results, and return. Set is kept at front position in the list.
 			//case 3: set has positive mine count of N && set has possibilities of size N
-			//     action: flag any (aka first) cell in the set, process results, and return. Set is kept at front position in the list.
+			//	 error check!: 
+					if(minefield.getMineCount() == 0) {
+						throw logic_error("Set indicates that its cell(s) should be flagged, but total game mine count is already zero");
+					}
+			//	 action: flag any (aka first) cell in the set, process results, and return. Set is kept at front position in the list.
 			//case 4: otherwise
-			//     action: check if the set is a subset of another set, and continue looping
-			//               **only need to recheck for being a subset when nearby cells are updated**
+			//	 action: check if the set is a subset of another set, and continue looping
+			//			   **only need to recheck for being a subset when nearby cells are updated**
 			//			instead of skipping already checked cells, just keep them at the back of the list and keep the front populated with cells that have had neighbor updates recently
-			//     can try having this be a "do nothing" case at first, to see how well the other cases do at advancing the board
+			//	 can try having this be a "do nothing" case at first, to see how well the other cases do at advancing the board
+			
+			
+			
+			//Maybe only do this if all other options are exhausted (since this is so computationally intensive)
+			//...but maybe you could do a "try it and see what happens approach"
+			//...whereby you loop through each possibility in each set and for every single one...
+			//	 - NOTE: a single space can be pointed to by multiple possibility sets (multiple number spaces). We don't need to check a space multiple times, since assuming it's a mine does the same thing regardless of who asked for it. (somehow keep track of spaces that we've examined already and skip them when they come up from a different set)
+			//	 - you create a copy of the ENTIRE solver (which will include all possibility sets) - would need a copy constructor that deeeeeep copies
+			//		  ...because we don't want the changes in a hypothetical to change the state of the real solver board, in case it was a mistake (the alternative is keeping a stack of all changes and unwinding the stack when we mess up)
+			//	 - you mark the one possibility we're examining as a mine
+			//	 - you continue stepping and solving AND SKIPPING REAL MINE FLAGS/REVEALS until an exception is thrown (somehow keep track of reveals that it wanted to do but can't because we're in simulator mode. If we keep algorithm the same but just skip interactions with the real minefield, then we will get stuck in an infinite loop of trying to reveal one space.)
+			//	 - you catch all logic_errors and if one was thrown, you're done with this whole loop scenario: you've found a safe space (by disproving its possibility as a mine) and can...
+			//		  ...action: reveal SPECIFIC cell in the set that was being examined, process results, and return. Set that contains the specific cell is kept at the same relative list position it was in.
 		}
 		
 		/**
