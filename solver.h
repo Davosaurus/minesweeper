@@ -3,6 +3,10 @@
 #include <fstream>
 
 namespace solver {
+	
+constexpr size_t LIST_PARTITION_FRONT = 0;
+constexpr size_t LIST_PARTITION_MIDDLE = 1;
+constexpr size_t LIST_PARTITION_BACK = 2;
 
 class NoValidMoveException : public exception {
 public:
@@ -51,8 +55,14 @@ ostream& operator<<(ostream& outputStream, const Solvercell& cell) {
 
 class Solver final : public Field {
 	private:
+		// Reference to the underlying game that is being played
+		// When moves are made by the solver, they are done directly to this object,
+		// and the results of those moves are populated in the result container for callers to inspect/display.
 		Minefield& minefield;
-		// partitioned_value_reorderable_list<Solvercell*> workingList;
+		
+		// Holds a list of solver cells which are still unsolved.
+		// Solved cells get removed as data is processed, and new cells are added as cells on the board are revealed.
+		partitioned_value_reorderable_list<Solvercell*> workingList;
 		
 		Solvercell* at(const short& row, const short& col) const {
 			return static_cast<Solvercell*>(Field::at(row, col));
@@ -91,6 +101,28 @@ class Solver final : public Field {
 		}
 		
 		/**
+		 * Reveal a space on the board from the given solver cell's set.
+		 * @param result points to a set where pointers to newly revealed cells will be placed.
+		 * @return the given cell.
+		 */
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* revealSpaceFromPossibilities(Solvercell* cell, ContainerType* const result) {
+			Solvercell* cellToReveal = *(cell->possibilitySet->possibilities.begin());
+			return minefield.revealSpace(cellToReveal->row, cellToReveal->col, result);
+		}
+		
+		/**
+		 * Flag a space on the board from the given solver cell's set.
+		 * @param result points to a set where pointers to newly flagged/unflagged cells will be placed.
+		 * @return the given cell.
+		 */
+		template<typename ContainerType = unordered_set<Minecell*>>
+		Minecell* flagSpaceFromPossibilities(Solvercell* cell, ContainerType* const result) {
+			Solvercell* cellToFlag = *(cell->possibilitySet->possibilities.begin());
+			return minefield.flagSpace(cellToFlag->row, cellToFlag->col, result);
+		}
+		
+		/**
 		 * When a cell is revealed to be a number or a blank space, remove it as a possibility for all other possibility sets, because we now know it cannot be a mine.
 		 * Reveal operations can turn cells from UNINITIALIZED to NUMBER, and we might be in the middle of a reveal operation. So we must be careful to only remove from possibility sets that are already initialized (check against nullptr)
 		 */
@@ -104,17 +136,19 @@ class Solver final : public Field {
 						throw logic_error("Possibility set contains more mines than possible cells after removing a cell from possibilites");
 					}
 					
-					//If possibilities size is reduced to (and now equals) mine count, we know the remaining possibilities (if any) are all mines and can be flagged.
-					//N mines in N spaces, this is a trivial case that is immediately actionable:
-					//	move this solver cell to the FRONT of the working list so that it gets processed next.
+					// If possibilities size is reduced to (and now equals) mine count,
+					// we know the remaining possibilities (if any) are all mines and can be flagged.
+					// N mines in N spaces, this is a trivial case that is immediately actionable:
+					// Move this solver cell to the FRONT of the working list so that it gets processed next.
 					if(neighbor->possibilitySet->possibilities.size() == neighbor->possibilitySet->numAdjacentMines) {
-						//TODO: move this solver cell to the FRONT of the working list and continue;
+						workingList.move_to_partition_front(neighbor, LIST_PARTITION_FRONT);
+						continue;
 					}
 					
-					//In all non-trivial cases, we still updated this solver cell,
-					//	which means it is more valuable to search next than cells which have not been recently updated.
-					//Thus, move this solver cell to the MIDDLE of the working list so that it gets processed after trivial cases but before stale cases.
-					//TODO: move this solver cell to the MIDDLE of the working list (partition 1)
+					// In all non-trivial cases, we still updated this solver cell,
+					// which means it is more valuable to search next than cells which have not been recently updated.
+					// Thus, move this solver cell to the MIDDLE of the working list so that it gets processed after trivial cases but before stale cases.
+					workingList.move_to_partition_front(neighbor, LIST_PARTITION_MIDDLE);
 				}
 			}
 		}
@@ -137,13 +171,14 @@ class Solver final : public Field {
 					// 0 mines in N spaces, this is a trivial case that is immediately actionable:
 					// move this solver cell to the FRONT of the working list so that it gets processed next.
 					if(neighbor->possibilitySet->numAdjacentMines == 0) {
-						//TODO: move this solver cell to the FRONT of the working list and continue;
+						workingList.move_to_partition_front(neighbor, LIST_PARTITION_FRONT);
+						continue;
 					}
 					
 					// In all non-trivial cases, we still updated this solver cell,
 					// which means it is more valuable to search next than cells which have not been recently updated.
 					// Thus, move this solver cell to the MIDDLE of the working list so that it gets processed after trivial cases but before stale cases.
-					//TODO: move this solver cell to the MIDDLE of the working list (partition 1)
+					workingList.move_to_partition_front(neighbor, LIST_PARTITION_MIDDLE);
 				}
 			}
 		}
@@ -159,7 +194,7 @@ class Solver final : public Field {
 				if(currentState == BLANK || currentState == NUMBER) {
 					removeSpaceFromAllAdjacentSolverCellPossibilitySets(solvercell);
 				}
-				else if(currentState == FAIL && cell->isFlagged()) {
+				else if(cell->isFlagged()) {
 					flagSpaceInAllAdjacentSolverCellPossibilitySets(solvercell);
 				}
 			}
@@ -176,6 +211,9 @@ class Solver final : public Field {
 						if(neighbor->state == UNINITIALIZED) {
 							newPossibilitySet->possibilities.insert(neighbor);
 						}
+						else if(minefield.at(neighbor->row, neighbor->col)->isFlagged()) {
+							newPossibilitySet->numAdjacentMines--;
+						}
 					}
 					
 					if(newPossibilitySet->numAdjacentMines > newPossibilitySet->possibilities.size()) {
@@ -187,25 +225,31 @@ class Solver final : public Field {
 					
 					solvercell->possibilitySet = newPossibilitySet;
 					
-					//TODO: add this solver cell to the BACK of the working list
+					// Add this solver cell to the BACK of the working list
+					workingList.insert_to_partition_front(solvercell, LIST_PARTITION_BACK);
 				}
 			}
 			
 			//Log results
-			LOGGER << endl << "Printing all number cells from processResults..." << endl;
+			LOGGER << "Printing all number cells from processResults..." << endl;
 			for(const auto& minecell : *result) {
 				Solvercell* cell = at(minecell->row, minecell->col);
 				if(cell->state == NUMBER) {
 					LOGGER << "Processed result: " << *cell;
 				}
 			}
+			LOGGER << endl;
 		}
 	
 	public:
 		/**
 		 * Constructor
 		 */
-		Solver(Minefield& desiredMinefield) : Field(desiredMinefield.getRows(), desiredMinefield.getCols()), minefield(desiredMinefield) {
+		Solver(Minefield& desiredMinefield
+		) :		Field(desiredMinefield.getRows(), desiredMinefield.getCols()),
+				minefield(desiredMinefield),
+				workingList(partitioned_value_reorderable_list<Solvercell*>(3))
+		{
 			cells = vector<vector<Cell*>>();
 			for(short row = 0; row < rows; row++) {
 				cells.push_back(vector<Cell*>());
@@ -226,52 +270,61 @@ class Solver final : public Field {
 			if(minefield.getGameStatus() == WON || minefield.getGameStatus() == LOST) {
 				throw logic_error("Step was requested when game is already finished");
 			}
-			else if(minefield.getGameStatus() == UNSTARTED) {
+			
+			if(minefield.getGameStatus() == UNSTARTED) {
+				LOGGER << "First move of the game: revealing a random space..." << endl;
 				Minecell* resultingCell = revealRandomSpace(result);
 				processResults(result);
 				return resultingCell;
 			}
 			
-			//What order to search through cells/possibility sets?
-			//	- Solution: keep some custom list of cells to look at.
-			//			Store pointers to SolverCell s - that way we can pull adjacent cells and reorder them to the top when relevant
-			
-			// std::forward_list<int> flist = {1, 2, 3, 4, 5};
-			// auto previous = flist.before_begin(); // Special iterator before the first element
-			// auto current = flist.begin();
-
-			// LOGGER << endl << "Examining all possibility sets..." << endl;
-			// while(current != flist.end()) {
-				// LOGGER << "Examining set: " << *current << endl;
-				// if(*current % 2 != 0) {
-					// current = flist.erase_after(previous); // Removes current, returns iterator to next
-				// }
-				// else {
-					// previous = current; // Move both forward
-					// ++current;
-				// }
-			// }
-			
-			// All cells have been examined, and no valid move was found with the information available to us
-			throw NoValidMoveException();
-			
-			//Loop through all possibility sets - 4 possible cases to check:
-			//case 1: set has mine count of 0 && possibilities of size 0
-			//	 action: cell is solved, remove it from working set, and continue looping
-			//case 2: set has mine count of 0
-			//	 action: reveal any (aka first) cell in the set, process results, and return. Set is kept at front position in the list.
-			//case 3: set has positive mine count of N && set has possibilities of size N
-			//	 error check!: 
+			// Loop through all possibility sets in the working list,
+			// looking for cases where we can immediately make a game move,
+			// or use logic to simplify the working list to iterate again
+			LOGGER << "Examining all possibility sets..." << endl;
+			auto currentSolvercellIterator = workingList.begin();
+			while(currentSolvercellIterator != workingList.end()) {
+				Solvercell* currentSolvercell = *currentSolvercellIterator;
+				PossibilitySet* possibilitySet = currentSolvercell->possibilitySet;
+				LOGGER << "Examining set: " << *currentSolvercell << endl;
+				
+				//case 1: set has mine count of 0 && possibilities of size 0
+				//	 action: cell is solved, remove it from working list, and continue looping
+				if(possibilitySet->numAdjacentMines == 0 && possibilitySet->possibilities.size() == 0) {
+					LOGGER << "Cell is solved, removing from working list and continuing..." << endl;
+					currentSolvercellIterator = workingList.erase(currentSolvercellIterator); //iterator is advanced to the next cell in the working list
+					continue;
+				}
+				
+				//case 2: set has mine count of 0
+				//	 action: reveal any (aka first) cell in the set, process results, and return. Set is kept at front position in the list.
+				if(possibilitySet->numAdjacentMines == 0) {
+					LOGGER << "Move found! All possibilities in this cell's set are safe to reveal." << endl << endl;
+					Minecell* resultingCell = revealSpaceFromPossibilities(currentSolvercell, result);
+					processResults(result);
+					return resultingCell;
+				}
+				
+				//case 3: set has positive mine count of N && set has possibilities of size N
+				//	 action: flag any (aka first) cell in the set, process results, and return. Set is kept at front position in the list.
+				if(possibilitySet->numAdjacentMines == possibilitySet->possibilities.size()) {
 					if(minefield.getMineCount() == 0) {
 						throw logic_error("Set indicates that its cell(s) should be flagged, but total game mine count is already zero");
 					}
-			//	 action: flag any (aka first) cell in the set, process results, and return. Set is kept at front position in the list.
-			//case 4: otherwise
-			//	 action: check if the set is a subset of another set, and continue looping
-			//			   **only need to recheck for being a subset when nearby cells are updated**
-			//			instead of skipping already checked cells, just keep them at the back of the list and keep the front populated with cells that have had neighbor updates recently
-			//	 can try having this be a "do nothing" case at first, to see how well the other cases do at advancing the board
-			
+					
+					LOGGER << "Move found! All possibilities in this cell's set should be flagged." << endl << endl;
+					Minecell* resultingCell = flagSpaceFromPossibilities(currentSolvercell, result);
+					processResults(result);
+					return resultingCell;
+				}
+				
+				//case 4: otherwise
+				//	 action: check if the set is a subset of another set, and continue looping
+				//			   **only need to recheck for being a subset when nearby cells are updated**
+				//			instead of skipping already checked cells, just keep them at the back of the list and keep the front populated with cells that have had neighbor updates recently
+				//	 can try having this be a "do nothing" case at first, to see how well the other cases do at advancing the board
+				++currentSolvercellIterator;
+			}
 			
 			
 			//Maybe only do this if all other options are exhausted (since this is so computationally intensive)
@@ -284,6 +337,10 @@ class Solver final : public Field {
 			//	 - you continue stepping and solving AND SKIPPING REAL MINE FLAGS/REVEALS until an exception is thrown (somehow keep track of reveals that it wanted to do but can't because we're in simulator mode. If we keep algorithm the same but just skip interactions with the real minefield, then we will get stuck in an infinite loop of trying to reveal one space.)
 			//	 - you catch all logic_errors and if one was thrown, you're done with this whole loop scenario: you've found a safe space (by disproving its possibility as a mine) and can...
 			//		  ...action: reveal SPECIFIC cell in the set that was being examined, process results, and return. Set that contains the specific cell is kept at the same relative list position it was in.
+			
+			
+			// All cells have been examined, and no valid move was found with the information available to us
+			throw NoValidMoveException();
 		}
 		
 		/**

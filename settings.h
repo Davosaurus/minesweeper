@@ -131,7 +131,7 @@ class Settings {
 			{"pixelDisplayThreshold", "4"},
 			{"playerName", ""},
 			{"solverModeDelay", "-1"},
-			{"solverModeNumberOfDelayIterationsToWaitBetweenGames", "10"},
+			{"solverModeGameEndPauseLength", "10"},
 			{"highScores", ""}
 		};
 		
@@ -245,12 +245,12 @@ class Settings {
 			settings["solverModeDelay"] = to_string(delayMillis);
 		}
 		
-		const int getSolverModeNumberOfDelayIterationsToWaitBetweenGames() {
-			return stoi(settings["solverModeNumberOfDelayIterationsToWaitBetweenGames"]);
+		const int getSolverModeGameEndPauseLength() {
+			return stoi(settings["solverModeGameEndPauseLength"]);
 		}
 		
-		void setSolverModeNumberOfDelayIterationsToWaitBetweenGames(const int& numIterations) {
-			settings["solverModeNumberOfDelayIterationsToWaitBetweenGames"] = to_string(numIterations);
+		void setSolverModeGameEndPauseLength(const int& numIterations) {
+			settings["solverModeGameEndPauseLength"] = to_string(numIterations);
 		}
 		
 		const set<HighScore, HighScoreComparator>& getHighScores() const {

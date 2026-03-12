@@ -7,24 +7,21 @@ class Logger {
 private:
 	const char* logFilePath = "log.txt";
 	std::ofstream logFile_;
-	std::streambuf* originalCerrBuffer_;
 	std::mutex mutex_;
 	
 	// Constructor
-	Logger() : originalCerrBuffer_(nullptr) {
+	Logger() {
 		std::lock_guard<std::mutex> lock(mutex_);
-		if(std::freopen(logFilePath, "a", stderr) != nullptr) {
-			std::cerr << std::unitbuf; 
-			logFile_.open(logFilePath);
+		logFile_.open(logFilePath, std::ios::app);
+		if(logFile_.is_open()) {
 			logFile_ << std::unitbuf;
 		}
 	}
 
 	// Destructor automatically restores the original buffer
 	~Logger() {
-		logFile_.close();
-		if(stderr != nullptr) {
-			std::fclose(stderr);
+		if(logFile_.is_open()) {
+			logFile_.close();
 		}
 	}
 	
@@ -55,8 +52,8 @@ public:
 	
 	// Removes the log file from the file system
 	void clear() {
+		std::lock_guard<std::mutex> lock(mutex_);
 		logFile_.close();
-		std::freopen("CON", "w", stderr);
 		std::filesystem::remove(logFilePath);
 	}
 
